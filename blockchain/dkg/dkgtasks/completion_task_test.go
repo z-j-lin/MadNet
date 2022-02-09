@@ -2,6 +2,7 @@ package dkgtasks_test
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -10,6 +11,9 @@ import (
 	"github.com/MadBase/MadNet/blockchain/dkg/dkgtasks"
 	"github.com/MadBase/MadNet/blockchain/dkg/dtest"
 	"github.com/MadBase/MadNet/blockchain/objects"
+	"github.com/MadBase/MadNet/consensus/objs"
+	"github.com/MadBase/MadNet/crypto"
+	"github.com/MadBase/MadNet/crypto/bn256"
 	"github.com/MadBase/MadNet/logging"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sirupsen/logrus"
@@ -323,6 +327,10 @@ func TestCompletionBad3(t *testing.T) {
 
 	// Do MPK Submission task
 	gpkjSubmitTasks := make([]*dkgtasks.GPKSubmissionTask, n)
+	myStr := `
+		import { ValidatorRawData } from "../../ethdkg/setup";
+		export const validatorsSnapshots: ValidatorRawData[] = [
+	`
 	for idx := 0; idx < n; idx++ {
 		state := dkgStates[idx]
 		logger := logging.GetLogger("test").WithField("Validator", accounts[idx].Address.String())
@@ -339,7 +347,44 @@ func TestCompletionBad3(t *testing.T) {
 
 		// Set GpkjSubmission success to true
 		dkgStates[idx].GPKJSubmission = true
+		encryptedShares := `[`
+		for _, share := range state.EncryptedShares[accounts[idx].Address] {
+			encryptedShares += fmt.Sprintf(`"0x%x",`, share)
+		}
+		encryptedShares += "]"
+		commitments := `[`
+		for _, commit := range state.Commitments[accounts[idx].Address] {
+			commitments += fmt.Sprintf(`["0x%x","0x%x"],`, commit[0], commit[1])
+		}
+		commitments += "]"
+		myStr += fmt.Sprintf(`
+			{
+			privateKey: "0x%x",
+			address: "0x%x",
+			madNetPublicKey:["0x%x", "0x%x"],
+			encryptedShares:%s,
+			commitments:%s,
+			keyShareG1: ["0x%x", "0x%x"],
+			keyShareG1CorrectnessProof: ["0x%x", "0x%x"],
+			keyShareG2: ["0x%x", "0x%x", "0x%x", "0x%x"],
+			mpk: ["0x%x", "0x%x", "0x%x", "0x%x"],
+			gpkj: ["0x%x", "0x%x", "0x%x", "0x%x"],
+			},
+		`,
+			ecdsaPrivateKeys[idx].D,
+			state.Account.Address,
+			state.TransportPublicKey[0], state.TransportPublicKey[1],
+			encryptedShares,
+			commitments,
+			state.KeyShareG1s[accounts[idx].Address][0], state.KeyShareG1s[accounts[idx].Address][1],
+			state.KeyShareG1CorrectnessProofs[accounts[idx].Address][0], state.KeyShareG1CorrectnessProofs[accounts[idx].Address][1],
+			state.KeyShareG2s[accounts[idx].Address][0], state.KeyShareG2s[accounts[idx].Address][1], state.KeyShareG2s[accounts[idx].Address][2], state.KeyShareG2s[accounts[idx].Address][3],
+			state.MasterPublicKey[0], state.MasterPublicKey[1], state.MasterPublicKey[2], state.MasterPublicKey[3],
+			state.GroupPublicKey[0], state.GroupPublicKey[1], state.GroupPublicKey[2], state.GroupPublicKey[3],
+		)
 	}
+	myStr += "];\n"
+	fmt.Print(myStr)
 
 	// Double check to Make sure all transactions were good
 	rcpts, err = eth.Queue().WaitGroupTransactions(ctx, 1)
@@ -417,9 +462,9 @@ func TestCompletionBad3(t *testing.T) {
 	// Advance to Completion phase
 	advanceTo(t, eth, dkgStates[0].CompleteStart)
 
-	// Advance to end of Completion phase
-	advanceTo(t, eth, dkgStates[0].CompleteEnd)
-	eth.Commit()
+	// // Advance to end of Completion phase
+	// advanceTo(t, eth, dkgStates[0].CompleteEnd)
+	// eth.Commit()
 
 	// Do bad Completion task; this should fail because we are past
 	state := dkgStates[0]
@@ -430,7 +475,51 @@ func TestCompletionBad3(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = task.DoWork(ctx, logger, eth)
-	if err == nil {
-		t.Fatal("Should have raised error")
+
+	//Create blocks and sign them
+
+	bclaims := &objs.BClaims{
+		ChainID:    1,
+		Height:     32,
+		TxCount:    0,
+		PrevBlock:  crypto.Hasher([]byte("")),
+		TxRoot:     crypto.Hasher([]byte("")),
+		StateRoot:  crypto.Hasher([]byte("")),
+		HeaderRoot: crypto.Hasher([]byte("")),
+	}
+
+	blockHash, err := bclaims.BlockHash()
+	if err != nil {
+		t.Fatal("Error generating block Hash")
+	}
+
+	bnSigners := []*crypto.BNGroupSigner{}
+	for idx := 0; idx < n; idx++ {
+		state := dkgStates[idx]
+		signer := &crypto.BNGroupSigner{}
+		signer.SetPrivk(state.GroupPrivateKey.Bytes())
+		bnSigners = append(bnSigners, signer)
+		groupKey, err := bn256.MarshalBigIntSlice(state.GroupPublicKey[:])
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = signer.SetGroupPubk(groupKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sig, err := signer.Sign(blockHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Printf("Sig: %x\n", sig)
+		bnVal := &crypto.BNGroupValidator{}
+		if err != nil {
+			t.Fatal(err)
+		}
+		pK, err := bnVal.PubkeyFromSig(sig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Printf("pK: %x\n", pK)
 	}
 }

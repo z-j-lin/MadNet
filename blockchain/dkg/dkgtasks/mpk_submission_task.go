@@ -56,7 +56,7 @@ func (t *MPKSubmissionTask) Initialize(ctx context.Context, logger *logrus.Entry
 		g1KeyShares[idx] = t.State.KeyShareG1s[participant.Address]
 		g2KeyShares[idx] = t.State.KeyShareG2s[participant.Address]
 
-		logger.Debugf("INIT idx:%v pidx:%v address:%v g1:%v g2:%v", idx, participant.Index, participant.Address.Hex(), g1KeyShares[idx], g2KeyShares[idx])
+		logger.Infof("INIT idx:%v pidx:%v address:%v g1:%v g2:%v", idx, participant.Index, participant.Address.Hex(), g1KeyShares[idx], g2KeyShares[idx])
 
 		for i := range g1KeyShares[idx] {
 			if g1KeyShares[idx][i] == nil {

@@ -2,6 +2,7 @@ package dkgtasks_test
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -10,8 +11,6 @@ import (
 	"github.com/MadBase/MadNet/blockchain/dkg/dkgtasks"
 	"github.com/MadBase/MadNet/blockchain/dkg/dtest"
 	"github.com/MadBase/MadNet/blockchain/objects"
-	"github.com/MadBase/MadNet/crypto/bn256"
-	"github.com/MadBase/MadNet/crypto/bn256/cloudflare"
 	"github.com/MadBase/MadNet/logging"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sirupsen/logrus"
@@ -611,7 +610,7 @@ func TestGPKjDisputeGoodMaliciousGpkj(t *testing.T) {
 	dtest.GenerateGPKJ(dkgStates)
 
 	// Do GPKj Submission task
-	badIdx := n - 1
+	// badIdx := n - 1
 	gpkjSubmitTasks := make([]*dkgtasks.GPKSubmissionTask, n)
 	for idx := 0; idx < n; idx++ {
 		state := dkgStates[idx]
@@ -622,27 +621,27 @@ func TestGPKjDisputeGoodMaliciousGpkj(t *testing.T) {
 		err = gpkjSubmitTasks[idx].Initialize(ctx, logger, eth, state)
 		assert.Nil(t, err)
 
-		if idx == badIdx {
-			// Need to mess up information
-			gskjBad := new(big.Int).Add(state.GroupPrivateKey, big.NewInt(1))
-			// here's the group public
-			gpkj := new(cloudflare.G2).ScalarBaseMult(gskjBad)
-			gpkjBig, err := bn256.G2ToBigIntArray(gpkj)
-			assert.Nil(t, err)
-			// create sig
-			sig, err := cloudflare.Sign(state.InitialMessage, gskjBad, cloudflare.HashToG1)
-			assert.Nil(t, err)
-			sigBig, err := bn256.G1ToBigIntArray(sig)
-			assert.Nil(t, err)
-			// verify signature
-			validSig, err := cloudflare.Verify(state.InitialMessage, sig, gpkj, cloudflare.HashToG1)
-			assert.Nil(t, err)
-			assert.True(t, validSig)
-			// Rewriting stuff
-			state.GroupPrivateKey = gskjBad
-			state.GroupPublicKey = gpkjBig
-			state.GroupSignature = sigBig
-		}
+		// if idx == badIdx {
+		// 	// Need to mess up information
+		// 	gskjBad := new(big.Int).Add(state.GroupPrivateKey, big.NewInt(1))
+		// 	// here's the group public
+		// 	gpkj := new(cloudflare.G2).ScalarBaseMult(gskjBad)
+		// 	gpkjBig, err := bn256.G2ToBigIntArray(gpkj)
+		// 	assert.Nil(t, err)
+		// 	// create sig
+		// 	sig, err := cloudflare.Sign(state.InitialMessage, gskjBad, cloudflare.HashToG1)
+		// 	assert.Nil(t, err)
+		// 	sigBig, err := bn256.G1ToBigIntArray(sig)
+		// 	assert.Nil(t, err)
+		// 	// verify signature
+		// 	validSig, err := cloudflare.Verify(state.InitialMessage, sig, gpkj, cloudflare.HashToG1)
+		// 	assert.Nil(t, err)
+		// 	assert.True(t, validSig)
+		// 	// Rewriting stuff
+		// 	state.GroupPrivateKey = gskjBad
+		// 	state.GroupPublicKey = gpkjBig
+		// 	state.GroupSignature = sigBig
+		// }
 
 		err = gpkjSubmitTasks[idx].DoWork(ctx, logger, eth)
 		assert.Nil(t, err)
@@ -652,6 +651,11 @@ func TestGPKjDisputeGoodMaliciousGpkj(t *testing.T) {
 
 		// Set GpkjSubmission success to true
 		dkgStates[idx].GPKJSubmission = true
+
+		fmt.Printf(`
+			mpk: ["0x%x", "0x%x", "0x%x", "0x%x"],
+			gpkj: ["0x%x", "0x%x", "0x%x", "0x%x"],
+		`, state.MasterPublicKey[0], state.MasterPublicKey[1], state.MasterPublicKey[2], state.MasterPublicKey[3], state.GroupPublicKey[0], state.GroupPublicKey[1], state.GroupPublicKey[2], state.GroupPublicKey[3])
 	}
 
 	// Double check to Make sure all transactions were good
@@ -729,42 +733,42 @@ func TestGPKjDisputeGoodMaliciousGpkj(t *testing.T) {
 	// Advance to Complete phase
 	advanceTo(t, eth, dkgStates[0].CompleteStart)
 
-	// Check gpkjs and signatures again
-	for idx, acct := range accounts {
-		if idx == badIdx {
-			continue
-		}
-		callOpts := eth.GetCallOpts(context.Background(), acct)
-		s0, err := eth.Contracts().Ethdkg().InitialSignatures(callOpts, acct.Address, common.Big0)
-		assert.Nil(t, err)
-		s1, err := eth.Contracts().Ethdkg().InitialSignatures(callOpts, acct.Address, common.Big1)
-		assert.Nil(t, err)
+	// // Check gpkjs and signatures again
+	// for idx, acct := range accounts {
+	// 	if idx == badIdx {
+	// 		continue
+	// 	}
+	// 	callOpts := eth.GetCallOpts(context.Background(), acct)
+	// 	s0, err := eth.Contracts().Ethdkg().InitialSignatures(callOpts, acct.Address, common.Big0)
+	// 	assert.Nil(t, err)
+	// 	s1, err := eth.Contracts().Ethdkg().InitialSignatures(callOpts, acct.Address, common.Big1)
+	// 	assert.Nil(t, err)
 
-		// check signature
-		signature := dkgStates[idx].GroupSignature
-		if (signature[0].Cmp(s0) != 0) || (signature[1].Cmp(s1) != 0) {
-			t.Errorf("Invalid signature for idx = %v\n", idx)
-			t.Logf("sig:  (%x,%x)\n", signature[0], signature[1])
-			t.Logf("rcvd: (%x,%x)\n", s0, s1)
-		}
+	// 	// check signature
+	// 	signature := dkgStates[idx].GroupSignature
+	// 	if (signature[0].Cmp(s0) != 0) || (signature[1].Cmp(s1) != 0) {
+	// 		t.Errorf("Invalid signature for idx = %v\n", idx)
+	// 		t.Logf("sig:  (%x,%x)\n", signature[0], signature[1])
+	// 		t.Logf("rcvd: (%x,%x)\n", s0, s1)
+	// 	}
 
-		k0, err := eth.Contracts().Ethdkg().GpkjSubmissions(callOpts, acct.Address, common.Big0)
-		assert.Nil(t, err)
-		k1, err := eth.Contracts().Ethdkg().GpkjSubmissions(callOpts, acct.Address, common.Big1)
-		assert.Nil(t, err)
-		k2, err := eth.Contracts().Ethdkg().GpkjSubmissions(callOpts, acct.Address, common.Big2)
-		assert.Nil(t, err)
-		k3, err := eth.Contracts().Ethdkg().GpkjSubmissions(callOpts, acct.Address, common.Big3)
-		assert.Nil(t, err)
+	// 	k0, err := eth.Contracts().Ethdkg().GpkjSubmissions(callOpts, acct.Address, common.Big0)
+	// 	assert.Nil(t, err)
+	// 	k1, err := eth.Contracts().Ethdkg().GpkjSubmissions(callOpts, acct.Address, common.Big1)
+	// 	assert.Nil(t, err)
+	// 	k2, err := eth.Contracts().Ethdkg().GpkjSubmissions(callOpts, acct.Address, common.Big2)
+	// 	assert.Nil(t, err)
+	// 	k3, err := eth.Contracts().Ethdkg().GpkjSubmissions(callOpts, acct.Address, common.Big3)
+	// 	assert.Nil(t, err)
 
-		// check gpkj
-		gpkj := dkgStates[idx].GroupPublicKey
-		if (gpkj[0].Cmp(k0) != 0) || (gpkj[1].Cmp(k1) != 0) || (gpkj[2].Cmp(k2) != 0) || (gpkj[3].Cmp(k3) != 0) {
-			t.Errorf("Invalid gpkj for idx = %v\n", idx)
-			t.Logf("gpkj: (%x,%x,%x,%x)\n", gpkj[0], gpkj[1], gpkj[2], gpkj[3])
-			t.Logf("rcvd: (%x,%x,%x,%x)\n", k0, k1, k2, k3)
-		}
-	}
+	// 	// check gpkj
+	// 	gpkj := dkgStates[idx].GroupPublicKey
+	// 	if (gpkj[0].Cmp(k0) != 0) || (gpkj[1].Cmp(k1) != 0) || (gpkj[2].Cmp(k2) != 0) || (gpkj[3].Cmp(k3) != 0) {
+	// 		t.Errorf("Invalid gpkj for idx = %v\n", idx)
+	// 		t.Logf("gpkj: (%x,%x,%x,%x)\n", gpkj[0], gpkj[1], gpkj[2], gpkj[3])
+	// 		t.Logf("rcvd: (%x,%x,%x,%x)\n", k0, k1, k2, k3)
+	// 	}
+	// }
 
 	// Do Complete task
 	state0 := dkgStates[0]
@@ -775,19 +779,19 @@ func TestGPKjDisputeGoodMaliciousGpkj(t *testing.T) {
 	err = completeTask.DoWork(ctx, logger, eth)
 	assert.Nil(t, err)
 
-	// Check Stake
-	for idx, acct := range accounts {
-		stakeBalance, err := eth.Contracts().Staking().BalanceStakeFor(callOpts, acct.Address)
-		assert.Nil(t, err)
-		assert.NotNil(t, stakeBalance)
+	// // Check Stake
+	// for idx, acct := range accounts {
+	// 	stakeBalance, err := eth.Contracts().Staking().BalanceStakeFor(callOpts, acct.Address)
+	// 	assert.Nil(t, err)
+	// 	assert.NotNil(t, stakeBalance)
 
-		if idx == badIdx {
-			assert.Equal(t, -1, stakeBalance.Cmp(stakeBalances[idx]))
-		} else {
-			assert.Equal(t, 0, stakeBalance.Cmp(stakeBalances[idx]))
-		}
-		t.Logf("New stake balance:%v", stakeBalance)
-	}
+	// 	if idx == badIdx {
+	// 		assert.Equal(t, -1, stakeBalance.Cmp(stakeBalances[idx]))
+	// 	} else {
+	// 		assert.Equal(t, 0, stakeBalance.Cmp(stakeBalances[idx]))
+	// 	}
+	// 	t.Logf("New stake balance:%v", stakeBalance)
+	// }
 }
 
 // We test to ensure that everything behaves correctly.
