@@ -1,6 +1,7 @@
 package dkgtasks_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/big"
@@ -13,7 +14,8 @@ import (
 	"github.com/MadBase/MadNet/blockchain/objects"
 	"github.com/MadBase/MadNet/consensus/objs"
 	"github.com/MadBase/MadNet/crypto"
-	"github.com/MadBase/MadNet/crypto/bn256"
+	bn256A "github.com/MadBase/MadNet/crypto/bn256"
+	bn256 "github.com/MadBase/MadNet/crypto/bn256/cloudflare"
 	"github.com/MadBase/MadNet/logging"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sirupsen/logrus"
@@ -75,6 +77,187 @@ func TestCompletionBad2(t *testing.T) {
 	if err == nil {
 		t.Fatal("Should have raised error")
 	}
+}
+
+func makeSigners(t *testing.T) ([]byte, []*crypto.BNGroupSigner, [][]byte, []*crypto.Secp256k1Signer, [][]byte) {
+	s := new(crypto.BNGroupSigner)
+	msg := []byte("A message to sign")
+
+	secret1 := big.NewInt(100)
+	secret2 := big.NewInt(101)
+	secret3 := big.NewInt(102)
+	secret4 := big.NewInt(103)
+
+	msk := big.NewInt(0)
+	msk.Add(msk, secret1)
+	msk.Add(msk, secret2)
+	msk.Add(msk, secret3)
+	msk.Add(msk, secret4)
+	msk.Mod(msk, bn256.Order)
+	mpk := new(bn256.G2).ScalarBaseMult(msk)
+
+	big1 := big.NewInt(1)
+	big2 := big.NewInt(2)
+
+	privCoefs1 := []*big.Int{secret1, big1, big2}
+	privCoefs2 := []*big.Int{secret2, big1, big2}
+	privCoefs3 := []*big.Int{secret3, big1, big2}
+	privCoefs4 := []*big.Int{secret4, big1, big2}
+
+	share1to1 := bn256.PrivatePolyEval(privCoefs1, 1)
+	share1to2 := bn256.PrivatePolyEval(privCoefs1, 2)
+	share1to3 := bn256.PrivatePolyEval(privCoefs1, 3)
+	share1to4 := bn256.PrivatePolyEval(privCoefs1, 4)
+	share2to1 := bn256.PrivatePolyEval(privCoefs2, 1)
+	share2to2 := bn256.PrivatePolyEval(privCoefs2, 2)
+	share2to3 := bn256.PrivatePolyEval(privCoefs2, 3)
+	share2to4 := bn256.PrivatePolyEval(privCoefs2, 4)
+	share3to1 := bn256.PrivatePolyEval(privCoefs3, 1)
+	share3to2 := bn256.PrivatePolyEval(privCoefs3, 2)
+	share3to3 := bn256.PrivatePolyEval(privCoefs3, 3)
+	share3to4 := bn256.PrivatePolyEval(privCoefs3, 4)
+	share4to1 := bn256.PrivatePolyEval(privCoefs4, 1)
+	share4to2 := bn256.PrivatePolyEval(privCoefs4, 2)
+	share4to3 := bn256.PrivatePolyEval(privCoefs4, 3)
+	share4to4 := bn256.PrivatePolyEval(privCoefs4, 4)
+
+	groupShares := make([][]byte, 4)
+	for k := 0; k < len(groupShares); k++ {
+		groupShares[k] = make([]byte, len(mpk.Marshal()))
+	}
+
+	listOfSS1 := []*big.Int{share1to1, share2to1, share3to1, share4to1}
+	gsk1 := bn256.GenerateGroupSecretKeyPortion(listOfSS1)
+	gpk1 := new(bn256.G2).ScalarBaseMult(gsk1)
+	groupShares[0] = gpk1.Marshal()
+	s1 := new(crypto.BNGroupSigner)
+	err := s1.SetPrivk(gsk1.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig1, err := s1.Sign(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	listOfSS2 := []*big.Int{share1to2, share2to2, share3to2, share4to2}
+	gsk2 := bn256.GenerateGroupSecretKeyPortion(listOfSS2)
+	gpk2 := new(bn256.G2).ScalarBaseMult(gsk2)
+	groupShares[1] = gpk2.Marshal()
+	s2 := new(crypto.BNGroupSigner)
+	err = s2.SetPrivk(gsk2.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig2, err := s2.Sign(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	listOfSS3 := []*big.Int{share1to3, share2to3, share3to3, share4to3}
+	gsk3 := bn256.GenerateGroupSecretKeyPortion(listOfSS3)
+	gpk3 := new(bn256.G2).ScalarBaseMult(gsk3)
+	groupShares[2] = gpk3.Marshal()
+	s3 := new(crypto.BNGroupSigner)
+	err = s3.SetPrivk(gsk3.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig3, err := s3.Sign(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	listOfSS4 := []*big.Int{share1to4, share2to4, share3to4, share4to4}
+	gsk4 := bn256.GenerateGroupSecretKeyPortion(listOfSS4)
+	gpk4 := new(bn256.G2).ScalarBaseMult(gsk4)
+	groupShares[3] = gpk4.Marshal()
+	s4 := new(crypto.BNGroupSigner)
+	err = s4.SetPrivk(gsk4.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig4, err := s4.Sign(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sigs := make([][]byte, 4)
+	for k := 0; k < len(sigs); k++ {
+		sigs[k] = make([]byte, 192)
+	}
+	sigs[0] = sig1
+	sigs[1] = sig2
+	sigs[2] = sig3
+	sigs[3] = sig4
+
+	err = s.SetGroupPubk(mpk.Marshal())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Make bad sigs array
+	sigsBad := make([][]byte, 2)
+	for k := 0; k < len(sigsBad); k++ {
+		sigsBad[k] = make([]byte, 192)
+	}
+	sigsBad[0] = sig1
+	sigsBad[1] = sig2
+	_, err = s.Aggregate(sigsBad, groupShares)
+	if err == nil {
+		t.Fatal("Should have raised an error for too few signatures!")
+	}
+
+	// Finally submit signature
+	grpsig, err := s.Aggregate(sigs, groupShares)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bnVal := &crypto.BNGroupValidator{}
+	groupk, err := bnVal.PubkeyFromSig(grpsig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bnSigners := []*crypto.BNGroupSigner{}
+	bnSigners = append(bnSigners, s1)
+	bnSigners = append(bnSigners, s2)
+	bnSigners = append(bnSigners, s3)
+	bnSigners = append(bnSigners, s4)
+
+	secpSigners := []*crypto.Secp256k1Signer{}
+	secpPubks := [][]byte{}
+	for _, share := range groupShares {
+		signer, pubk := makeSecpSigner(share)
+		secpPubks = append(secpPubks, pubk)
+		secpSigners = append(secpSigners, signer)
+	}
+
+	for _, signer := range bnSigners {
+		err := signer.SetGroupPubk(groupk)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	mpkBin := mpk.Marshal()
+	fmt.Printf("MPK: %x\n", mpkBin)
+	fmt.Printf("GroupK: %x\n", groupk)
+	if bytes.Equal(mpkBin, groupk) {
+		t.Fatal("Error")
+	}
+
+	return groupk, bnSigners, groupShares, secpSigners, secpPubks
+}
+
+func makeSecpSigner(seed []byte) (*crypto.Secp256k1Signer, []byte) {
+	secpSigner := &crypto.Secp256k1Signer{}
+	err := secpSigner.SetPrivk(crypto.Hasher(seed))
+	if err != nil {
+		panic(err)
+	}
+	secpKey, _ := secpSigner.Pubkey()
+	return secpSigner, secpKey
 }
 
 // We complete everything correctly, but we do not complete in time
@@ -476,11 +659,89 @@ func TestCompletionBad3(t *testing.T) {
 	}
 	err = task.DoWork(ctx, logger, eth)
 
-	//Create blocks and sign them
+	bnSigners := []*crypto.BNGroupSigner{}
+	for idx := 0; idx < n; idx++ {
+		state := dkgStates[idx]
+		signer := &crypto.BNGroupSigner{}
+		signer.SetPrivk(state.GroupPrivateKey.Bytes())
+		bnSigners = append(bnSigners, signer)
+		groupKey, err := bn256A.MarshalBigIntSlice(state.MasterPublicKey[:])
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = signer.SetGroupPubk(groupKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 
+	// Valid at 1024
+	grpSig1024, bClaimsBin1024, err := GenerateSnapshotData(1, 1024, bnSigners, n, state.MasterPublicKey[:], false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//Valid block at 2048
+	grpSig2048, bClaimsBin2048, err := GenerateSnapshotData(1, 2048, bnSigners, n, state.MasterPublicKey[:], false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Incorrect height at 500
+	grpSig500, bClaimsBin500, err := GenerateSnapshotData(1, 500, bnSigners, n, state.MasterPublicKey[:], false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Incorrect chanid 2 at 1024
+	grpSigChain2, bClaimsBinChain2, err := GenerateSnapshotData(2, 1024, bnSigners, n, state.MasterPublicKey[:], false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Incorrect signature in a valid block at 1024
+	grpSigIncorrect, bClaimsBinIncorrect, err := GenerateSnapshotData(2, 1024, bnSigners, n, state.MasterPublicKey[:], true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Printf(`
+		export const validSnapshot1024: Snapshot = {
+			GroupSignature: "0x%x",
+			BClaims: "0x%x"
+		};
+
+		export const validSnapshot2048: Snapshot = {
+			GroupSignature: "0x%x",
+			BClaims: "0x%x"
+		};
+
+		export const invalidSnapshot500: Snapshot = {
+			GroupSignature: "0x%x",
+			BClaims: "0x%x"
+		};
+
+		export const invalidSnapshotChainID2: Snapshot = {
+			GroupSignature: "0x%x",
+			BClaims: "0x%x"
+		};
+
+		export const invalidSnapshotIncorrectSig: Snapshot = {
+			GroupSignature: "0x%x",
+			BClaims: "0x%x"
+		};`,
+		grpSig1024, bClaimsBin1024,
+		grpSig2048, bClaimsBin2048,
+		grpSig500, bClaimsBin500,
+		grpSigChain2, bClaimsBinChain2,
+		grpSigIncorrect, bClaimsBinIncorrect,
+	)
+
+}
+
+func GenerateSnapshotData(chainID uint32, height uint32, bnSigners []*crypto.BNGroupSigner, n int, mpkI []*big.Int, fakeSig bool) ([]byte, []byte, error) {
 	bclaims := &objs.BClaims{
-		ChainID:    1,
-		Height:     32,
+		ChainID:    chainID,
+		Height:     height,
 		TxCount:    0,
 		PrevBlock:  crypto.Hasher([]byte("")),
 		TxRoot:     crypto.Hasher([]byte("")),
@@ -490,36 +751,65 @@ func TestCompletionBad3(t *testing.T) {
 
 	blockHash, err := bclaims.BlockHash()
 	if err != nil {
-		t.Fatal("Error generating block Hash")
+		return nil, nil, err
 	}
 
-	bnSigners := []*crypto.BNGroupSigner{}
+	bClaimsBin, err := bclaims.MarshalBinary()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	grpsig := []byte{}
+	if fakeSig {
+		grpsig, err = bnSigners[0].Sign(blockHash)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		grpsig, err = GenerateBlockSignature(bnSigners, n, blockHash, mpkI)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	bnVal := &crypto.BNGroupValidator{}
+	_, err = bnVal.Validate(blockHash, grpsig)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return grpsig, bClaimsBin, nil
+}
+
+func GenerateBlockSignature(bnSigners []*crypto.BNGroupSigner, n int, blockHash []byte, mpkI []*big.Int) ([]byte, error) {
+	sigs := [][]byte{}
+	groupShares := [][]byte{}
 	for idx := 0; idx < n; idx++ {
-		state := dkgStates[idx]
-		signer := &crypto.BNGroupSigner{}
-		signer.SetPrivk(state.GroupPrivateKey.Bytes())
-		bnSigners = append(bnSigners, signer)
-		groupKey, err := bn256.MarshalBigIntSlice(state.GroupPublicKey[:])
+		sig, err := bnSigners[idx].Sign(blockHash)
 		if err != nil {
-			t.Fatal(err)
-		}
-		err = signer.SetGroupPubk(groupKey)
-		if err != nil {
-			t.Fatal(err)
-		}
-		sig, err := signer.Sign(blockHash)
-		if err != nil {
-			t.Fatal(err)
+			return nil, err
 		}
 		fmt.Printf("Sig: %x\n", sig)
-		bnVal := &crypto.BNGroupValidator{}
+		sigs = append(sigs, sig)
+		pkShare, err := bnSigners[idx].PubkeyShare()
 		if err != nil {
-			t.Fatal(err)
+			return nil, err
 		}
-		pK, err := bnVal.PubkeyFromSig(sig)
-		if err != nil {
-			t.Fatal(err)
-		}
-		fmt.Printf("pK: %x\n", pK)
+		groupShares = append(groupShares, pkShare)
+		fmt.Printf("Pkshare: %x\n", pkShare)
 	}
+	s := new(crypto.BNGroupSigner)
+	mpk, err := bn256A.MarshalBigIntSlice(mpkI)
+	err = s.SetGroupPubk(mpk)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally submit signature
+	grpsig, err := s.Aggregate(sigs, groupShares)
+	if err != nil {
+		return nil, err
+	}
+	return grpsig, nil
+
 }
