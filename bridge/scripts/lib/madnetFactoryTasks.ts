@@ -1,4 +1,4 @@
-import { BytesLike, ContractFactory, ContractReceipt } from "ethers";
+import { BigNumberish, BytesLike, ContractFactory, ContractReceipt } from "ethers";
 import fs from "fs";
 import { task } from "hardhat/config";
 import { HardhatRuntimeEnvironment } from "hardhat/types";
@@ -11,6 +11,7 @@ import {
   DEPLOY_CREATE,
   DEPLOY_METAMORPHIC,
   DEPLOY_PROXY,
+  DEPLOY_STATIC,
   DEPLOY_UPGRADEABLE_PROXY,
   FACTORY_STATE_PATH,
   INITIALIZER,
@@ -90,6 +91,15 @@ task(
   return network;
 });
 
+task("getContractAddress", "gets the bytes32 version of salt from contract")
+  .addParam("address")
+  .addOptionalParam("nonce")
+  .setAction(async (taskArgs, hre) => {
+    const address = await getDeployCreateAddress(taskArgs.address, hre, taskArgs.nonce);
+    console.log(address);
+    return address;
+  });
+
 task("getBytes32Salt", "gets the bytes32 version of salt from contract")
   .addParam("contractName", "test contract")
   .setAction(async (taskArgs, hre) => {
@@ -97,6 +107,113 @@ task("getBytes32Salt", "gets the bytes32 version of salt from contract")
     await showState(salt);
   });
 
+  task("formatBytes32String", "gets the bytes32 version of salt from contract")
+  .addParam("input", "test contract")
+  .setAction(async (taskArgs, hre) => {
+    let salt = hre.ethers.utils.formatBytes32String(taskArgs.input)
+    await showState(salt);
+    return salt;
+  });
+
+task(
+  "encodeSDTemplate",
+  "generates the bytecode to deploy a destroyable template"
+)
+  .addParam("contractName", "name of contract to deploy")
+  .addParam("factoryAddress")
+  .addOptionalVariadicPositionalParam(
+    "constructorArgs",
+    "array that holds all arguements for constructor"
+  )
+  .setAction(async (taskArgs, hre) => {
+    const logicFactory: ContractFactory = await hre.ethers.getContractFactory(
+      taskArgs.contractName
+    );
+    const replacement = logicFactory.bytecode.slice(2, 12);
+    const factoryAddress: string = taskArgs.factoryAddress.substring(2);
+    const selfDestructByteCode =
+      "0x5B63cfc720073d3560e01c1473" +
+      factoryAddress +
+      "33141615586007015733ff5b" +
+      replacement +
+      "600456";
+    
+    const constructorArgs: Array<string> = [selfDestructByteCode]
+    taskArgs.constructorArgs === undefined ? [selfDestructByteCode] : constructorArgs.push(...taskArgs.constructorArgs);
+    const logicDeployTX = logicFactory.getDeployTransaction(...constructorArgs);
+    let bytecode = logicDeployTX.data?.toString() as string;
+    const sdDest = (bytecode.length - 130) / 2;
+    let jumpDest = sdDest.toString(16);
+    jumpDest = jumpDest.length < 4 ? "0" + jumpDest : jumpDest;
+    // console.log(jumpDest)
+    const jumpCode = "0x61" + jumpDest + "565B";
+    bytecode = jumpCode + bytecode.slice(12);
+    const universalCodeCopy = "0x38585839386009f3";
+    bytecode = universalCodeCopy + bytecode.substring(2);
+    await showState(bytecode);
+    return bytecode;
+  });
+
+task("multiCallDeployMetamorphic")
+  .addParam("contractName", "name of contract to deploy")
+  .addParam("factoryAddress")
+  .addOptionalParam(
+    "initCallData",
+    "input initCallData args in a string list, eg: --initCallData 'arg1, arg2'"
+  )
+  .addOptionalParam("outputFolder", "output folder path to save factory state")
+  .addOptionalVariadicPositionalParam(
+    "constructorArgs",
+    "array that holds all arguements for constructor"
+  )
+  .setAction(async (taskArgs, hre) => {
+    const logicFactory: ContractFactory = await hre.ethers.getContractFactory(
+      taskArgs.contractName
+    );
+    const initArgs =
+      taskArgs.initCallData === undefined
+        ? []
+        : taskArgs.initCallData.replace(/\s+/g, "").split(",");
+    const fullname = (await getFullyQualifiedName(
+      taskArgs.contractName,
+      hre
+    )) as string;
+    const isInitable = await isInitializable(fullname, hre.artifacts);
+    const initCallData = isInitable
+      ? logicFactory.interface.encodeFunctionData(INITIALIZER, initArgs)
+      : "0x";
+    const factoryBase = await hre.ethers.getContractFactory(MADNET_FACTORY);
+    const factory = factoryBase.attach(taskArgs.factoryAddress);
+    const templateBytecode = await hre.run("encodeSDTemplate", {
+      contractName: taskArgs.contractName,
+      factoryAddress: taskArgs.factoryAddress,
+      constructorArgs: taskArgs.constructorArgs
+    });
+    const salt = await getBytes32Salt(taskArgs.contractName, hre);
+    let count = await hre.ethers.provider.getTransactionCount(taskArgs.factoryAddress);
+    const templateAddress = await getDeployCreateAddress(taskArgs.factoryAddress, hre, count);
+    console.log("templateaddr", templateAddress);
+    const deployCreate = factoryBase.interface.encodeFunctionData(
+      DEPLOY_CREATE,
+      [templateBytecode]
+    );
+    const deployStatic = factoryBase.interface.encodeFunctionData(
+      DEPLOY_STATIC,
+      [salt, initCallData]
+    );
+    const selfDestructCallData = hre.ethers.utils
+      .keccak256(hre.ethers.utils.toUtf8Bytes("selfdestruct(address)"))
+      .slice(0, 10);
+    const selfDestruct = factoryBase.interface.encodeFunctionData("callAny", [
+      templateAddress,
+      0x00,
+      selfDestructCallData,
+    ]);
+    let txResponse = await factory.multiCall([deployCreate, deployStatic, selfDestruct]);
+    let receipt = await txResponse.wait();
+    //console.log([deployCreate, deployStatic, selfDestruct]);
+    return receipt
+  });
 task(
   "deployFactory",
   "Deploys an instance of a factory contract specified by its name"
@@ -216,11 +333,11 @@ task("deployContracts", "runs the initial deployment of all madnet contracts")
     "deployFactory",
     "flag to indicate deployment, will deploy the factory first if set"
   )
-  .addOptionalParam("inputFolder", "path to location containing deploymentArgsTemplate, and deploymentList")
   .addOptionalParam(
-    "outputFolder",
-    "output folder path to save factory state"
+    "inputFolder",
+    "path to location containing deploymentArgsTemplate, and deploymentList"
   )
+  .addOptionalParam("outputFolder", "output folder path to save factory state")
   .setAction(async (taskArgs, hre) => {
     await checkUserDirPath(taskArgs.outputFolder);
     // setting listName undefined will use the default list
@@ -341,24 +458,32 @@ task(
       outputFolder: taskArgs.outputFolder,
     };
     // deploy create the logic contract
-    await hre.run("deployTemplate", callArgs);
+    let templateData:TemplateData = await hre.run("deployTemplate", callArgs);
+    console.log(templateData.receipt?.cumulativeGasUsed)
     callArgs = {
       contractName: taskArgs.contractName,
       factoryAddress,
       initCallData: taskArgs.initCallData,
       outputFolder: taskArgs.outputFolder,
     };
-    const metaContractData = await hre.run("deployStatic", callArgs);
+    const metaContractData:MetaContractData = await hre.run("deployStatic", callArgs);
+    console.log(metaContractData.receipt?.cumulativeGasUsed)
     await showState(
       `Deployed Metamorphic for ${taskArgs.contractName} at: ${metaContractData.metaAddress}, with logic from, ${metaContractData.templateAddress}, gas used: ${metaContractData.gas}`
     );
+    if (templateData.gas !== undefined && metaContractData.gas !== undefined){
+      metaContractData.gas = metaContractData.gas + templateData.gas
+    }
     return metaContractData;
   });
 
 // factoryName param doesnt do anything right now
 task(DEPLOY_CREATE, "deploys a contract from the factory using create")
   .addParam("contractName", "logic contract name")
-  .addOptionalParam("factoryAddress", "the default factory address from factoryState will be used if not set")
+  .addOptionalParam(
+    "factoryAddress",
+    "the default factory address from factoryState will be used if not set"
+  )
   .addOptionalParam("outputFolder", "output folder path to save factory state")
   .addOptionalVariadicPositionalParam(
     "constructorArgs",
@@ -418,7 +543,10 @@ task(DEPLOY_PROXY, "deploys a proxy from the factory")
     "salt",
     "salt used to specify logicContract and proxy address calculation"
   )
-  .addOptionalParam("factoryAddress", "the default factory address from factoryState will be used if not set")
+  .addOptionalParam(
+    "factoryAddress",
+    "the default factory address from factoryState will be used if not set"
+  )
   .setAction(async (taskArgs, hre) => {
     const network = hre.network.name;
     const factoryAddress = await getFactoryAddress(network, taskArgs);
@@ -448,10 +576,7 @@ task(UPGRADE_DEPLOYED_PROXY, "deploys a contract from the factory using create")
     "initCallData",
     "input initCallData args in a string list, eg: --initCallData 'arg1, arg2'"
   )
-  .addOptionalParam(
-    "outputFolder",
-    "output folder path to save factory state"
-  )
+  .addOptionalParam("outputFolder", "output folder path to save factory state")
   .setAction(async (taskArgs, hre) => {
     const network = hre.network.name;
     const factoryAddress = await getFactoryAddress(network, taskArgs);
@@ -513,10 +638,7 @@ task(
     "factoryAddress",
     "optional factory address, defaults to config address"
   )
-  .addOptionalParam(
-    "outputFolder",
-    "output folder path to save factory state"
-  )
+  .addOptionalParam("outputFolder", "output folder path to save factory state")
   .addOptionalVariadicPositionalParam(
     "constructorArgs",
     "input constructor args at the end of call"
@@ -573,10 +695,7 @@ task(
     "initCallData",
     "input initCallData args in a string list, eg: --initCallData 'arg1, arg2'"
   )
-  .addOptionalParam(
-    "outputFolder",
-    "output folder path to save factoryState"
-  )
+  .addOptionalParam("outputFolder", "output folder path to save factoryState")
   .setAction(async (taskArgs, hre) => {
     const network = hre.network.name;
     const factoryAddress = await getFactoryAddress(network, taskArgs);
@@ -602,18 +721,18 @@ task(
     // TODO: Reconsider doing this, might get the wrong implementation address
     const tmplAddress = await factory.callStatic.getImplementation();
     const txResponse = await factory.deployStatic(Salt, initCallData);
-    const receipt = await txResponse.wait();
+    let receipt = await txResponse.wait();
     const contractAddr = getEventVar(receipt, DEPLOYED_STATIC, CONTRACT_ADDR);
     // await showState(`Subtask deployStatic, ${taskArgs.contractName}, contract at ${contractAddr}, gas: ${receipt.gasUsed}`);
-    const outputData: MetaContractData = {
+    let outputData: MetaContractData = {
       metaAddress: contractAddr,
       salt: Salt,
       templateName: taskArgs.contractName,
       templateAddress: tmplAddress,
       factoryAddress: factory.address,
       gas: receipt.gasUsed.toNumber(),
-      receipt,
-      initCallData,
+      receipt: receipt,
+      initCallData: initCallData,
     };
     await updateMetaList(network, outputData, taskArgs.outputFolder);
     return outputData;
@@ -634,10 +753,7 @@ task("multiCallDeployProxy", "deploy and upgrade proxy with multicall")
     "initCallData",
     "input initCallData args in a string list, eg: --initCallData 'arg1, arg2'"
   )
-  .addOptionalParam(
-    "outputFolder",
-    "output folder path to save factoryState"
-  )
+  .addOptionalParam("outputFolder", "output folder path to save factoryState")
   .addOptionalParam(
     "salt",
     "unique salt for specifying proxy defaults to salt specified in logic contract"
@@ -706,7 +822,10 @@ task(
   "multi call to deploy logic and upgrade proxy through factory"
 )
   .addParam("contractName", "logic contract name")
-  .addOptionalParam("factoryAddress", "the default factory address from factoryState will be used if not set")
+  .addOptionalParam(
+    "factoryAddress",
+    "the default factory address from factoryState will be used if not set"
+  )
   .addOptionalParam(
     "initCallData",
     "input initCallData args in a string list, eg: --initCallData 'arg1, arg2'"
@@ -952,8 +1071,26 @@ function getMetamorphicAddress(
   );
 }
 
+async function getDeployCreateAddress(
+  factoryAddress: string,
+  hre: HardhatRuntimeEnvironment,
+  nonce?: BigNumberish,
+) {
+  let count = nonce !== undefined ? nonce : await hre.ethers.provider.getTransactionCount(factoryAddress);
+  return hre.ethers.utils.getContractAddress({
+    from: factoryAddress,
+    nonce: count
+  });
+}
+
 export const showState = async (message: string): Promise<void> => {
   if (process.env.silencer === undefined || process.env.silencer === "false") {
     console.log(message);
   }
 };
+
+
+
+
+
+// ["0x27fe1822000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000002e638585839386009f361029e565b34801561001057600080fd5b5060405161023e38038061023e83398101604081905261002f91610052565b5060a0523360805261012f565b634e487b7160e01b600052604160045260246000fd5b6000806040838503121561006557600080fd5b8251602080850151919350906001600160401b038082111561008657600080fd5b818601915086601f83011261009a57600080fd5b8151818111156100ac576100ac61003c565b604051601f8201601f19908116603f011681019083821181831017156100d4576100d461003c565b8160405282815289868487010111156100ec57600080fd5b600093505b8284101561010e57848401860151818501870152928501926100f1565b8284111561011f5760008684830101525b8096505050505050509250929050565b60805160a05160ee61015060003960006096015260006069015260ee6000f3fe6080604052348015600f57600080fd5b5060043610603c5760003560e01c80637c2efcba14604157806388cc58e414605c5780638bcb38cf146092575b600080fd5b604960005481565b6040519081526020015b60405180910390f35b6040516001600160a01b037f00000000000000000000000000000000000000000000000000000000000000001681526020016053565b60497f00000000000000000000000000000000000000000000000000000000000000008156fea2646970667358221220c60f19e185c3f9cc325be2317e96f27cc116b00dfc157c3f172bef10ee78415664736f6c634300080b00330000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000365b63cfc720073d356102241c14730b1f9c2b7bed6db83295c7b5158e3806d67ec5bc33141615586007015733ff5b60c0604052600556000000000000000000000000000000000000000000000000000000000000000000000000", "0xfa481da54d6f636b53656c6644657374727563740000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000", "0x12e6bf6a0000000000000000000000003bfded457d9f230a91e6735771113478791c09c1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000004cfc7200700000000000000000000000000000000000000000000000000000000"]

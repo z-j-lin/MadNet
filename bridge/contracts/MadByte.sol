@@ -66,7 +66,7 @@ contract MadByte is
         uint256 amount
     );
 
-    constructor()
+    constructor(bytes memory)
         Admin(msg.sender)
         Mutex()
         ImmutableFactory(msg.sender)

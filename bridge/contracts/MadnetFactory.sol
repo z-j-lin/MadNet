@@ -28,7 +28,7 @@ contract MadnetFactory is MadnetFactoryBase {
         address target_,
         uint256 value_,
         bytes calldata cdata_
-    ) public onlyOwner {
+    ) public payable onlyOwner {
         bytes memory cdata = cdata_;
         _callAny(target_, value_, cdata);
         _returnAvailableData();
@@ -84,7 +84,7 @@ contract MadnetFactory is MadnetFactoryBase {
     function deployProxy(bytes32 salt_) public onlyOwner returns (address contractAddr) {
         contractAddr = _deployProxy(salt_);
     }
-
+    
     /**
      * @dev deployStatic finishes the deployment started with the deployTemplate of a contract with
      * determinist address. This function call any initialize() function in the deployed contract

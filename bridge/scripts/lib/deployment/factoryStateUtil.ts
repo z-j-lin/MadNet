@@ -141,18 +141,17 @@ export async function updateMetaList(
 export async function updateList(
   network: string,
   fieldName: string,
-  data: any,
+  input: any,
   usrPath?: string
 ) {
+  let data = input 
   const factoryStateConfig = await readFactoryState(usrPath);
   const output: Array<any> =
     factoryStateConfig[network][fieldName] === undefined
       ? []
       : factoryStateConfig[network][fieldName];
   output.push(data);
-  if (data.receipt !== undefined) {
-    data.receipt = undefined;
-  }
+ 
   // write new data to config file
   await writeFactoryState(network, fieldName, output, usrPath);
 }
