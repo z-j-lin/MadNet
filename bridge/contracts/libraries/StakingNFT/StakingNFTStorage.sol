@@ -4,6 +4,8 @@ pragma solidity ^0.8.11;
 abstract contract StakingNFTStorage {
     // Position describes a staked position
     struct Position {
+        // number of aTokens when including weight
+        uint224 weightedShares;
         // number of aToken
         uint224 shares;
         // block number after which the position may be burned.
@@ -65,4 +67,15 @@ abstract contract StakingNFTStorage {
     // state to keep track of the amount of ATokens deposited and collected
     // from the contract
     uint256 internal _reserveToken;
+
+    // state to keep track of the amount of ATokens to be distributed
+    // from the contract to locked stakers
+    uint256 internal _additionalToken;
+
+    // denominator used when computing weighted stake
+    uint256 internal constant _LOCKING_TIER_DENOMINATOR = 1000;
+
+    // TODO: need different tiers; potential for wanting a short locking period.
+    //       will probably need to use an enum. We may want a specific struct to
+    //       to use for Tier objects.
 }
