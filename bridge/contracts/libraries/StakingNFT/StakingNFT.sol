@@ -515,6 +515,8 @@ abstract contract StakingNFT is
         tokenID = _increment();
 
         // update storage
+        // TODO: need weighted amount, as we now want to track weighted shares,
+        //       not shares
         shares += amount_;
         _shares = shares;
         _positions[tokenID] = Position(
@@ -750,5 +752,49 @@ abstract contract StakingNFT is
             }
         }
         return (accumulator_, slush_);
+    }
+
+    // _epochReward computes the additional ATokens to be minted for a given epoch.
+    // The specific reward is based on the Bitcoin block rewards;
+    // after each reward era, the additional tokens minted are halved.
+    function _epochReward(uint32 epoch_) internal pure returns (uint256) {
+        uint256 currentEra_ = epoch_ / _REWARD_ERA;
+        uint256 additionalTokens_ = _ADDITIONAL_ATOKENS / (_REWARD_ERA * 2**(currentEra_ + 1));
+        return additionalTokens_;
+    }
+
+    // Computes the additional ATokens which will be distributed
+    // as part of the snapshot process.
+    // This should *only* be called during the snapshot process
+    // and should only be performed *once*.
+    function _updateAccumulatorForMinting(
+        uint32 epoch_,
+        uint256 shares_,
+        Accumulator memory state_,
+        uint256 reserveToken_
+    ) internal pure returns (Accumulator memory, uint256) {
+        uint256 newlyMintedTokens_ = _epochReward(epoch_);
+        state_ = _deposit(shares_, newlyMintedTokens_, state_);
+        reserveToken_ += newlyMintedTokens_;
+        return (state_, reserveToken_);
+    }
+
+    // MUST BE MODIFIED TO ENSURE THIS IS ONLY CALLED ONCE PER EPOCH
+    // MUST HAVE RESTRICTION SO CALLED ONLY DURING THE SNAPSHOT PROCESS
+    function mintATokensForEpoch(uint32 epoch_) external {
+        // Make copies of state variable
+        Accumulator memory tokenState = _tokenState;
+        uint256 shares = _shares;
+        uint256 reserveToken = _reserveToken;
+        (tokenState, reserveToken) = _updateAccumulatorForMinting(
+            epoch_,
+            shares,
+            tokenState,
+            reserveToken
+        );
+        // Overwrite state variables
+        _tokenState = tokenState;
+        _reserveToken = reserveToken;
+        return;
     }
 }

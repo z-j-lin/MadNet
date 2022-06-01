@@ -78,4 +78,13 @@ abstract contract StakingNFTStorage {
     // TODO: need different tiers; potential for wanting a short locking period.
     //       will probably need to use an enum. We may want a specific struct to
     //       to use for Tier objects.
+
+    // _REWARD_ERA specifies the number of epochs per reward era,
+    // which determines the specific decay rate of additional ATokens which are minted
+    // each snapshot (epoch).
+    //
+    // TODO: we should think about what value we want to choose
+    uint32 internal constant _REWARD_ERA = 4400;
+
+    uint256 internal _ADDITIONAL_ATOKENS = 220000000000000000000000000;
 }
