@@ -498,6 +498,8 @@ abstract contract StakingNFT is
     function _mintNFT(address to_, uint256 amount_) internal returns (uint256 tokenID) {
         // this is to allow struct packing and is safe due to AToken having a
         // total distribution of 220M
+        // TODO: may want to add appropriate error code to match new require statement
+        require(amount_ > 0);
         require(
             amount_ <= 2**224 - 1,
             string(abi.encodePacked(StakingNFTErrorCodes.STAKENFT_MINT_AMOUNT_EXCEEDS_MAX_SUPPLY))
@@ -514,6 +516,22 @@ abstract contract StakingNFT is
         // get new tokenID from counter
         tokenID = _increment();
 
+        // Need to ensure that we call _slushSkim on both tokens *and* Eth
+        // accumulators before minting. This ensures that all stakers
+        // receive their appropriate earnings.
+        if (shares > 0) {
+            (ethState.accumulator, ethState.slush) = _slushSkim(
+                shares,
+                ethState.accumulator,
+                ethState.slush
+            );
+            (tokenState.accumulator, tokenState.slush) = _slushSkim(
+                shares,
+                tokenState.accumulator,
+                tokenState.slush
+            );
+        }
+
         // update storage
         // TODO: need weighted amount, as we now want to track weighted shares,
         //       not shares
@@ -527,6 +545,9 @@ abstract contract StakingNFT is
             tokenState.accumulator
         );
         _reserveToken += amount_;
+        // Overwrite state
+        _ethState = ethState;
+        _tokenState = tokenState;
         // invoke inherited method and return
         ERC721Upgradeable._mint(to_, tokenID);
         return tokenID;
@@ -732,8 +753,8 @@ abstract contract StakingNFT is
         return state_;
     }
 
-    // _slushSkim flushes value from the slush into the accumulator if there are
-    // no currently staked positions, all value is stored in the slush
+    // _slushSkim flushes value from the slush into the accumulator;
+    // if there are no currently staked positions, all value is stored in the slush
     function _slushSkim(
         uint256 shares_,
         uint256 accumulator_,
@@ -757,9 +778,13 @@ abstract contract StakingNFT is
     // _epochReward computes the additional ATokens to be minted for a given epoch.
     // The specific reward is based on the Bitcoin block rewards;
     // after each reward era, the additional tokens minted are halved.
-    function _epochReward(uint32 epoch_) internal pure returns (uint256) {
-        uint256 currentEra_ = epoch_ / _REWARD_ERA;
-        uint256 additionalTokens_ = _ADDITIONAL_ATOKENS / (_REWARD_ERA * 2**(currentEra_ + 1));
+    function _epochReward(
+        uint32 epoch_,
+        uint256 additionalNewTokens_,
+        uint256 rewardEra_
+    ) internal pure returns (uint256) {
+        uint256 currentEra_ = epoch_ / rewardEra_;
+        uint256 additionalTokens_ = additionalNewTokens_ / (rewardEra_ * 2**(currentEra_ + 1));
         return additionalTokens_;
     }
 
@@ -771,18 +796,25 @@ abstract contract StakingNFT is
         uint32 epoch_,
         uint256 shares_,
         Accumulator memory state_,
-        uint256 reserveToken_
+        uint256 reserveToken_,
+        uint256 additionalNewTokens_,
+        uint256 rewardEra_
     ) internal pure returns (Accumulator memory, uint256) {
-        uint256 newlyMintedTokens_ = _epochReward(epoch_);
+        uint256 newlyMintedTokens_ = _epochReward(epoch_, additionalNewTokens_, rewardEra_);
         state_ = _deposit(shares_, newlyMintedTokens_, state_);
         reserveToken_ += newlyMintedTokens_;
         return (state_, reserveToken_);
     }
 
+    // Whenever starting (minting position) or stopping (burning position),
+    // we need to first perform slush skim (or ensure that this does happen).
+    // This will ensure that earnings (Eth and AToken) are not earned
+    // unless position is staked first.
+
     // MUST BE MODIFIED TO ENSURE THIS IS ONLY CALLED ONCE PER EPOCH
     // MUST HAVE RESTRICTION SO CALLED ONLY DURING THE SNAPSHOT PROCESS
     function mintATokensForEpoch(uint32 epoch_) external {
-        // Make copies of state variable
+        // Make copies of state variable to save gas
         Accumulator memory tokenState = _tokenState;
         uint256 shares = _shares;
         uint256 reserveToken = _reserveToken;
@@ -790,11 +822,41 @@ abstract contract StakingNFT is
             epoch_,
             shares,
             tokenState,
-            reserveToken
+            reserveToken,
+            _ADDITIONAL_ATOKENS,
+            _REWARD_ERA
         );
         // Overwrite state variables
         _tokenState = tokenState;
         _reserveToken = reserveToken;
         return;
+    }
+
+    // This function is needed so that staked participants may update
+    // their position to realize their gains; this will result
+    // in earning more Eth and additional ATokens
+    function updateTokenPosition(uint256 tokenID_) public {
+        // collect state
+        Position memory p = _positions[tokenID_];
+
+        // get copy of storage to save gas
+        uint256 shares = _shares;
+        uint256 payoutToken;
+        // calc token amounts due
+        (p, payoutToken) = _collectToken(shares, p);
+
+        require(
+            p.shares + payoutToken <= 2**224 - 1,
+            string(abi.encodePacked(StakingNFTErrorCodes.STAKENFT_MINT_AMOUNT_EXCEEDS_MAX_SUPPLY))
+        );
+        // Update shares in position
+        p.shares += uint224(payoutToken); // NEED TO FIX
+        // Update total staked shares
+        shares += payoutToken; // NEED TO FIX
+
+        // Overwrite position
+        _positions[tokenID_] = p;
+        // Overwrite shares
+        _shares = shares;
     }
 }

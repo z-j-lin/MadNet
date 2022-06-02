@@ -4,8 +4,8 @@ pragma solidity ^0.8.11;
 abstract contract StakingNFTStorage {
     // Position describes a staked position
     struct Position {
-        // number of aTokens when including weight
-        uint224 weightedShares;
+        //// number of aTokens when including weight
+        //uint224 weightedShares;
         // number of aToken
         uint224 shares;
         // block number after which the position may be burned.
