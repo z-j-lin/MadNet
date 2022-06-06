@@ -197,8 +197,13 @@ abstract contract StakingNFT is
     /// requires the caller to have performed an approve invocation against
     /// AToken into this contract. This function will fail if the circuit
     /// breaker is tripped.
-    function mint(uint256 amount_) public virtual withCircuitBreaker returns (uint256 tokenID) {
-        return _mintNFT(msg.sender, amount_);
+    function mint(uint256 amount_, Tier memory tier)
+        public
+        virtual
+        withCircuitBreaker
+        returns (uint256 tokenID)
+    {
+        return _mintNFT(msg.sender, amount_, tier);
     }
 
     /// mintTo allows a staking position to be opened in the name of an
@@ -210,17 +215,17 @@ abstract contract StakingNFT is
     function mintTo(
         address to_,
         uint256 amount_,
-        uint256 lockDuration_
+        Tier memory tier
     ) public virtual withCircuitBreaker returns (uint256 tokenID) {
         require(
-            lockDuration_ <= _MAX_MINT_LOCK,
+            tier.lockDuration <= _MAX_MINT_LOCK,
             string(
                 abi.encodePacked(StakingNFTErrorCodes.STAKENFT_LOCK_DURATION_GREATER_THAN_MINT_LOCK)
             )
         );
-        tokenID = _mintNFT(to_, amount_);
-        if (lockDuration_ > 0) {
-            _lockPosition(tokenID, lockDuration_);
+        tokenID = _mintNFT(to_, amount_, tier);
+        if (tier.lockDuration > 0) {
+            _lockPosition(tokenID, tier.lockDuration);
         }
         return tokenID;
     }
@@ -495,7 +500,11 @@ abstract contract StakingNFT is
     }
 
     // _mintNFT performs the mint operation and invokes the inherited _mint method
-    function _mintNFT(address to_, uint256 amount_) internal returns (uint256 tokenID) {
+    function _mintNFT(
+        address to_,
+        uint256 amount_,
+        Tier memory tier
+    ) internal returns (uint256 tokenID) {
         // this is to allow struct packing and is safe due to AToken having a
         // total distribution of 220M
         // TODO: may want to add appropriate error code to match new require statement
@@ -532,15 +541,23 @@ abstract contract StakingNFT is
             );
         }
 
+        // Compute weighted shares; this weight is determined by the specific
+        // Tier selected.
+        uint256 weightedAmount_ = (tier.multiplier * amount_) / _LOCKING_TIER_DENOMINATOR;
+        bool lockedPosition = false;
+        if (tier.lockDuration > 0) {
+            lockedPosition = true;
+        }
+
         // update storage
-        // TODO: need weighted amount, as we now want to track weighted shares,
-        //       not shares
-        shares += amount_;
+        shares += weightedAmount_;
         _shares = shares;
         _positions[tokenID] = Position(
+            uint224(weightedAmount_),
+            lockedPosition,
             uint224(amount_),
-            uint32(block.number) + 1,
-            uint32(block.number) + 1,
+            uint32(block.number) + 1, // TODO: this must be fixed
+            uint32(block.number) + 1, // TODO: this must be fixed
             ethState.accumulator,
             tokenState.accumulator
         );
@@ -783,9 +800,9 @@ abstract contract StakingNFT is
         uint256 additionalNewTokens_,
         uint256 rewardEra_
     ) internal pure returns (uint256) {
-        uint256 currentEra_ = epoch_ / rewardEra_;
-        uint256 additionalTokens_ = additionalNewTokens_ / (rewardEra_ * 2**(currentEra_ + 1));
-        return additionalTokens_;
+        uint256 currentEra = epoch_ / rewardEra_;
+        uint256 additionalTokens = additionalNewTokens_ / (rewardEra_ * 2**(currentEra + 1));
+        return additionalTokens;
     }
 
     // Computes the additional ATokens which will be distributed
@@ -842,7 +859,7 @@ abstract contract StakingNFT is
         // get copy of storage to save gas
         uint256 shares = _shares;
         uint256 payoutToken;
-        // calc token amounts due
+        // calc token amount due
         (p, payoutToken) = _collectToken(shares, p);
 
         require(
@@ -850,9 +867,10 @@ abstract contract StakingNFT is
             string(abi.encodePacked(StakingNFTErrorCodes.STAKENFT_MINT_AMOUNT_EXCEEDS_MAX_SUPPLY))
         );
         // Update shares in position
-        p.shares += uint224(payoutToken); // NEED TO FIX
+        p.weightedShares += uint224(payoutToken);
+        p.shares += uint224(payoutToken);
         // Update total staked shares
-        shares += payoutToken; // NEED TO FIX
+        shares += payoutToken;
 
         // Overwrite position
         _positions[tokenID_] = p;
