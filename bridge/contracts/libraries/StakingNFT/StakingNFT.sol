@@ -197,13 +197,13 @@ abstract contract StakingNFT is
     /// requires the caller to have performed an approve invocation against
     /// AToken into this contract. This function will fail if the circuit
     /// breaker is tripped.
-    function mint(uint256 amount_, Tier memory tier)
+    function mint(uint256 amount_, uint256 lockDuration_)
         public
         virtual
         withCircuitBreaker
         returns (uint256 tokenID)
     {
-        return _mintNFT(msg.sender, amount_, tier);
+        return _mintNFT(msg.sender, amount_, lockDuration_);
     }
 
     /// mintTo allows a staking position to be opened in the name of an
@@ -215,17 +215,18 @@ abstract contract StakingNFT is
     function mintTo(
         address to_,
         uint256 amount_,
-        Tier memory tier
+        uint256 lockDuration_
     ) public virtual withCircuitBreaker returns (uint256 tokenID) {
         require(
-            tier.lockDuration <= _MAX_MINT_LOCK,
+            lockDuration_ <= _MAX_MINT_LOCK,
             string(
                 abi.encodePacked(StakingNFTErrorCodes.STAKENFT_LOCK_DURATION_GREATER_THAN_MINT_LOCK)
             )
         );
-        tokenID = _mintNFT(to_, amount_, tier);
-        if (tier.lockDuration > 0) {
-            _lockPosition(tokenID, tier.lockDuration);
+        tokenID = _mintNFT(to_, amount_, lockDuration_);
+        // TODO: is this needed?
+        if (lockDuration_ > 0) {
+            _lockPosition(tokenID, lockDuration_);
         }
         return tokenID;
     }
@@ -503,12 +504,14 @@ abstract contract StakingNFT is
     function _mintNFT(
         address to_,
         uint256 amount_,
-        Tier memory tier
+        uint256 lockDuration_
     ) internal returns (uint256 tokenID) {
         // this is to allow struct packing and is safe due to AToken having a
         // total distribution of 220M
         // TODO: may want to add appropriate error code to match new require statement
         require(amount_ > 0);
+        // TODO: may want to add appropriate error code to match new require statement
+        require(lockDuration_ > 0);
         require(
             amount_ <= 2**224 - 1,
             string(abi.encodePacked(StakingNFTErrorCodes.STAKENFT_MINT_AMOUNT_EXCEEDS_MAX_SUPPLY))
@@ -526,8 +529,8 @@ abstract contract StakingNFT is
         tokenID = _increment();
 
         // Need to ensure that we call _slushSkim on both tokens *and* Eth
-        // accumulators before minting. This ensures that all stakers
-        // receive their appropriate earnings.
+        // accumulators before minting an additional staked position.
+        // This ensures that all stakers receive their appropriate earnings.
         if (shares > 0) {
             (ethState.accumulator, ethState.slush) = _slushSkim(
                 shares,
@@ -541,11 +544,26 @@ abstract contract StakingNFT is
             );
         }
 
+        uint256 lockingTierNumerator;
+        // If block to specify
+        //if (_LOCKING_TIER_0 <= lockDuration_ < _LOCKING_TIER_1) {
+        if ((_LOCKING_TIER_0 <= lockDuration_) && (lockDuration_ < _LOCKING_TIER_1)) {
+            lockingTierNumerator = _LOCKING_TIER_0_NUMERATOR;
+        } else if ((_LOCKING_TIER_1 <= lockDuration_) && (lockDuration_ < _LOCKING_TIER_2)) {
+            lockingTierNumerator = _LOCKING_TIER_1_NUMERATOR;
+        } else if ((_LOCKING_TIER_2 <= lockDuration_) && (lockDuration_ < _LOCKING_TIER_3)) {
+            lockingTierNumerator = _LOCKING_TIER_2_NUMERATOR;
+        } else if ((_LOCKING_TIER_3 <= lockDuration_) && (lockDuration_ < _LOCKING_TIER_4)) {
+            lockingTierNumerator = _LOCKING_TIER_3_NUMERATOR;
+        } else {
+            lockingTierNumerator = _LOCKING_TIER_4_NUMERATOR;
+        }
+
         // Compute weighted shares; this weight is determined by the specific
         // Tier selected.
-        uint256 weightedAmount_ = (tier.multiplier * amount_) / _LOCKING_TIER_DENOMINATOR;
+        uint256 weightedAmount_ = (lockingTierNumerator * amount_) / _LOCKING_TIER_DENOMINATOR;
         bool lockedPosition = false;
-        if (tier.lockDuration > 0) {
+        if (lockDuration_ >= _LOCKING_TIER_1) {
             lockedPosition = true;
         }
 
@@ -557,7 +575,7 @@ abstract contract StakingNFT is
             lockedPosition,
             uint224(amount_),
             uint32(block.number) + 1, // TODO: this must be fixed
-            uint32(block.number) + 1, // TODO: this must be fixed
+            uint32(block.number) + lockDuration_, // TODO: this must be fixed
             ethState.accumulator,
             tokenState.accumulator
         );
