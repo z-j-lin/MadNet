@@ -19,7 +19,13 @@
                 "go.gopath": "/go",
                 "go.goroot": "/usr/local/go"
             },
-            "extensions": ["golang.Go", "ms-azuretools.vscode-docker"]
+            "extensions": [
+				"golang.Go",
+				"ms-azuretools.vscode-docker",
+				"eamodio.gitlens",
+				"tintinweb.solidity-visual-auditor",
+				"NomicFoundation.hardhat-solidity"
+			]
         }
     },
     "remoteUser": "vscode"
