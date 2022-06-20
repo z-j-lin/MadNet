@@ -5,7 +5,7 @@ import "contracts/utils/ImmutableAuth.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import "contracts/BToken.sol";
-import "hardhat/console.sol";
+// import "hardhat/console.sol";
 import {BridgePoolErrorCodes} from "contracts/libraries/errorCodes/BridgePoolErrorCodes.sol";
 import "contracts/libraries/parsers/MerkleProofParserLibrary.sol";
 import "contracts/libraries/MerkleProofLibrary.sol";
@@ -81,9 +81,25 @@ contract BridgePool is
                 )
             )
         );
-        require(BToken(_bTokenContract).destroyTokens(bTokenAmount_), "unable to burn fees");
-        //for erc20 tokenID field is 0
-        //utxoID is independent of amount
+        // require(BToken(_bTokenContract).destroyTokens(bTokenAmount_), "unable to burn fees");
+
+        uint256 value = BToken(_bTokenContract).burnTo(address(this), bTokenAmount_, 1);
+        // console.log(value);
+        // require(value > 0, "unable to burn fees");
+        // for erc20 tokenID field is 0
+        // utxoID is independent of amount
+        address btoken = _bTokenContract;
+        assembly {
+            mstore8(0x00, 0x73)
+            mstore(0x01, shl(96, btoken))
+            mstore8(0x15, 0xff)
+            let addr := create(value, 0x00, 0x16)
+            if iszero(addr) {
+                returndatacopy(0x00, 0x00, returndatasize())
+                revert(0x00, returndatasize())
+            }
+        }
+
         BridgePoolDepositNotifier(_bridgePoolDepositNotifierAddress()).doEmit(
             BridgePoolFactory(_bridgePoolFactoryAddress()).getSaltFromERC20Address(
                 _ercTokenContract
@@ -118,5 +134,6 @@ contract BridgePool is
         _safeTransferERC20(IERC20Transferable(_ercTokenContract), msg.sender, burnedUTXO.value);
     }
 
+    //
     receive() external payable {}
 }
