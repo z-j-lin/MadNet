@@ -1,4 +1,5 @@
 import toml from "@iarna/toml";
+import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import axios from "axios";
 import { spawn } from "child_process";
 import { BigNumber, ContractTransaction } from "ethers";
@@ -9,6 +10,10 @@ import { HardhatRuntimeEnvironment } from "hardhat/types";
 import {
   ALICENET_FACTORY,
   DEFAULT_CONFIG_OUTPUT_DIR,
+  MAINNET_ALICENET_FACTORY_ADDR,
+  MAINNET_CHAIN_ID,
+  MAINNET_FACTORY_OWNER_ADDR,
+  MAINNET_SYNC_FROM_BLOCK,
   VALIDATOR_CONFIG_DIR,
 } from "./constants";
 import { readDeploymentArgs } from "./deployment/deploymentConfigUtil";
@@ -194,6 +199,7 @@ task(
 task("registerValidators", "registers validators")
   .addFlag("test")
   .addParam("factoryAddress", "address of the factory deploying the contract")
+
   .addVariadicPositionalParam(
     "addresses",
     "validators' addresses",
@@ -201,11 +207,23 @@ task("registerValidators", "registers validators")
     types.string,
     false
   )
+  .addOptionalParam("signer", "optional signer for impersonate")
   .setAction(async (taskArgs, hre) => {
+    let admin: SignerWithAddress;
+    if (taskArgs.signer !== undefined) {
+      hre.ethers.provider = new hre.ethers.providers.JsonRpcProvider(
+        hre.ethers.provider.connection.url
+      );
+      admin = await hre.ethers.getSigner(taskArgs.signer);
+    } else {
+      admin = (await hre.ethers.getSigners())[0];
+    }
+    console.log(`Admin address: ${admin.address}`);
     console.log("registerValidators", taskArgs.addresses);
     const factory = await hre.ethers.getContractAt(
       "AliceNetFactory",
-      taskArgs.factoryAddress
+      taskArgs.factoryAddress,
+      admin
     );
 
     // checking factory address
@@ -219,15 +237,13 @@ task("registerValidators", "registers validators")
     const validatorAddresses: string[] = taskArgs.addresses;
     console.log(validatorAddresses);
     // Make sure that admin is the named account at position 0
-    const [admin] = await hre.ethers.getSigners();
-    console.log(`Admin address: ${admin.address}`);
 
-    const registrationContract = await (
+    let registrationContract;
+    registrationContract = await (
       await hre.ethers.getContractFactory("RegisterValidators")
     )
       .connect(admin)
       .deploy(taskArgs.factoryAddress);
-
     if (taskArgs.test) {
       await hre.network.provider.send("hardhat_mine", [
         hre.ethers.utils.hexValue(3),
@@ -235,7 +251,6 @@ task("registerValidators", "registers validators")
     } else {
       await registrationContract.deployTransaction.wait(3);
     }
-
     const validatorPool = await hre.ethers.getContractAt(
       "ValidatorPool",
       await factory.lookup(
@@ -272,7 +287,6 @@ task("registerValidators", "registers validators")
     } else {
       await tx.wait(3);
     }
-
     console.log("done");
   });
 
@@ -417,31 +431,40 @@ task("initializeEthdkg", "Start the ethdkg process")
     "factoryAddress",
     "the default factory address from factoryState will be used if not set"
   )
+  .addOptionalParam("signer", "optional signer for impersonate")
   .setAction(async (taskArgs, hre) => {
     const { ethers } = hre;
 
-    const [admin] = await ethers.getSigners();
+    let admin: SignerWithAddress;
+    if (taskArgs.signer === undefined) {
+      admin = (await ethers.getSigners())[0];
+    } else {
+      hre.ethers.provider = new hre.ethers.providers.JsonRpcProvider(
+        hre.ethers.provider.connection.url
+      );
+      admin = await ethers.getSigner(taskArgs.signer);
+    }
     const adminSigner = await ethers.getSigner(admin.address);
     const factory = await ethers.getContractAt(
       "AliceNetFactory",
-      taskArgs.factoryAddress
+      taskArgs.factoryAddress,
+      admin
     );
     const validatorPool = await hre.ethers.getContractAt(
       "ValidatorPool",
       await factory.lookup(
         hre.ethers.utils.formatBytes32String("ValidatorPool")
-      )
+      ),
+      admin
     );
 
     console.log("Initializing ETHDKG");
     await (
-      await factory
-        .connect(adminSigner)
-        .callAny(
-          validatorPool.address,
-          0,
-          validatorPool.interface.encodeFunctionData("initializeETHDKG")
-        )
+      await factory.callAny(
+        validatorPool.address,
+        0,
+        validatorPool.interface.encodeFunctionData("initializeETHDKG")
+      )
     ).wait(3);
     console.log("Done");
   });
@@ -916,7 +939,7 @@ task(
   .addOptionalParam(
     "factoryAddress",
     "Address of alicenet Factory, defaults to mainnet",
-    "0xA85Fcfba7234AD28148ebDEe054165AeF6974a65"
+    MAINNET_ALICENET_FACTORY_ADDR
   )
   .addOptionalParam(
     "configPath",
@@ -930,32 +953,16 @@ task(
       const filePath = VALIDATOR_CONFIG_DIR + fileName;
       const data = await fs.readFileSync(filePath);
       const config: any = toml.parse(data.toString());
+      config.chain["id"] = MAINNET_CHAIN_ID;
       config.ethereum["registryAddress"] = taskArgs.factoryAddress;
-      config.ethereum["startingBlock"] = 14542800;
+      config.ethereum["startingBlock"] = MAINNET_SYNC_FROM_BLOCK;
       const output = toml.stringify(config);
       await fs.writeFileSync(VALIDATOR_CONFIG_DIR + fileName, output);
     }
   });
 
-task("get-latest-blockheight", "gets the latest external chain height")
-  .addOptionalParam(
-    "rpcUrl",
-    "the provider url for the chain to querry from",
-    "https://testnet.eth.mnexplore.com/"
-  )
-  .setAction(async (taskArgs, hre) => {
-    const provider = new hre.ethers.providers.JsonRpcProvider(taskArgs.rpcUrl);
-    const blocknum = (await provider.getBlockNumber()) - 100;
-    console.log(blocknum);
-    return blocknum;
-  });
-
 task("create-local-seed-node", "start and syncs a node with mainnet")
-  .addOptionalParam(
-    "configPath",
-    "path to the nodes config file",
-    "~/Desktop/seedValidatorConfig.toml"
-  )
+  .addParam("configPath", "path to the nodes config file")
   .setAction(async (taskArgs) => {
     const valNode = spawn(
       "./madnet",
@@ -983,7 +990,7 @@ task("create-local-seed-node", "start and syncs a node with mainnet")
           timeout: 2000,
         };
         const response = await axios.post(
-          "http://0.0.0.0:8885/v1/" + "get-block-number",
+          "http://0.0.0.0:8883/v1/" + "get-block-number",
           {},
           requestConfig
         );
@@ -1003,59 +1010,31 @@ task("create-local-seed-node", "start and syncs a node with mainnet")
     return alicenetHeight["BlockHeight"].toString();
   });
 
-task("fork-external-chain", "")
-  .addOptionalParam("rpcUrl")
-  .setAction(async () => {
-    const hardhatNode = spawn("npm", ["run", "fork-testnet"]);
-    hardhatNode.stdout.on("data", (data) => {
+task("start-local-seed-node", "starts a node already synced with main net")
+  .addParam("configPath", "path to the nodes config file")
+  .setAction(async (taskArgs) => {
+    const valNode = spawn(
+      "./madnet",
+      ["--config", taskArgs.configPath, "validator"],
+      {
+        cwd: "../",
+        shell: true,
+      }
+    );
+
+    valNode.stdout.on("data", (data) => {
       console.log(data.toString());
     });
-    hardhatNode.stderr.on("data", (data) => {
+    valNode.stderr.on("data", (data) => {
       console.log(data.toString());
     });
-    hardhatNode.on("close", (code) => {
+    valNode.on("close", (code) => {
       console.log(`child process exited with code ${code}`);
     });
-
-    while (1) {
-      continue;
-    }
   });
 
-task(
-  "start-local-seed-node",
-  "starts a node already synce with remote testnet on local testnet"
-).setAction(async () => {
-  const valNode = spawn(
-    "./madnet",
-    [
-      "--config",
-      "./scripts/base-files/localTestNetBaseConfig.toml",
-      "validator",
-    ],
-    {
-      cwd: "../",
-      shell: true,
-    }
-  );
-
-  // valNode.stdout.on("data", (data) => {
-  //   console.log(data.toString());
-  // });
-  // valNode.stderr.on("data", (data) => {
-  //   console.log(data.toString());
-  // });
-  // valNode.on("close", (code) => {
-  //   console.log(`child process exited with code ${code}`);
-  // });
-});
-
 task("enable-hardhat-impersonate")
-  .addParam(
-    "account",
-    "account to impersonate",
-    "0xb9670e38d560c5662f0832cacaac3282ecffddb1"
-  )
+  .addParam("account", "account to impersonate", "MAINNET_FACTORY_OWNER_ADDR")
   .setAction(async (taskArgs, hre) => {
     await hre.network.provider.request({
       method: "hardhat_impersonateAccount",
@@ -1077,22 +1056,18 @@ task("pause-consensus-at-height")
   .addOptionalParam(
     "factoryAddress",
     "address of the factory contract that deployed all the defaults to ropsten testnet factory",
-    "0xA85Fcfba7234AD28148ebDEe054165AeF6974a65"
+    MAINNET_ALICENET_FACTORY_ADDR
   )
   .addOptionalParam(
     "signer",
     "account that deployed factory, defaults to 0xb9670e38d560c5662f0832cacaac3282ecffddb1",
-    "0xb9670e38d560c5662f0832cacaac3282ecffddb1"
+    MAINNET_FACTORY_OWNER_ADDR
   )
   .setAction(async (taskArgs, hre) => {
     // get the signer for the owner of the factory
     hre.ethers.provider = new hre.ethers.providers.JsonRpcProvider(
       hre.ethers.provider.connection.url
     );
-    await hre.network.provider.request({
-      method: "hardhat_impersonateAccount",
-      params: ["0xb9670e38d560c5662f0832cacaac3282ecffddb1"],
-    });
     const signer = await hre.ethers.getSigner(taskArgs.signer);
     const factory = await hre.ethers.getContractAt(
       ALICENET_FACTORY,
@@ -1124,14 +1099,17 @@ task("unregister-all-validators", "unregisters all the validators")
   .addOptionalParam(
     "factoryAddress",
     "address of the factory contract that deployed all the defaults to ropsten testnet factory",
-    "0xA85Fcfba7234AD28148ebDEe054165AeF6974a65"
+    MAINNET_ALICENET_FACTORY_ADDR
   )
   .addOptionalParam(
     "signer",
     "account that deployed factory, defaults to ",
-    "0xb9670e38d560c5662f0832cacaac3282ecffddb1"
+    MAINNET_FACTORY_OWNER_ADDR
   )
   .setAction(async (taskArgs, hre) => {
+    hre.ethers.provider = new hre.ethers.providers.JsonRpcProvider(
+      hre.ethers.provider.connection.url
+    );
     // get the signer for the owner of the factory
     const signer = await hre.ethers.getSigner(taskArgs.signer);
     const factory = await hre.ethers.getContractAt(
@@ -1157,6 +1135,39 @@ task("unregister-all-validators", "unregisters all the validators")
     );
     // wait for the tx to be mined
     await txResponse.wait();
+  });
+
+task("register-all-validators", "unregisters all the validators")
+  .addOptionalParam(
+    "factoryAddress",
+    "address of the factory contract that deployed all the defaults to ropsten testnet factory",
+    MAINNET_ALICENET_FACTORY_ADDR
+  )
+  .addOptionalParam(
+    "configPath",
+    "Path to the validator config directory",
+    "../scripts/generated/config"
+  )
+  .addOptionalParam(
+    "signer",
+    "account that deployed factory, defaults to ",
+    MAINNET_FACTORY_OWNER_ADDR
+  )
+  .setAction(async (taskArgs, hre) => {
+    let validatorAddresses: Array<string> = [];
+    let validatorConfigs = fs.readdirSync(taskArgs.configPath);
+    for (let fileName of validatorConfigs) {
+      const filePath = VALIDATOR_CONFIG_DIR + fileName;
+      const data = await fs.readFileSync(filePath);
+      const config: any = toml.parse(data.toString());
+      validatorAddresses.push(config.ethereum["defaultAccount"]);
+    }
+    await hre.run("registerValidators", {
+      test: true,
+      factoryAddress: taskArgs.factoryAddress,
+      addresses: validatorAddresses,
+      signer: taskArgs.signer,
+    });
   });
 
 // async function unregisterAllValidators(

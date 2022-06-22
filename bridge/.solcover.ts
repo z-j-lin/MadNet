@@ -2,10 +2,10 @@ module.exports = {
   configureYulOptimizer: true,
   solcOptimizerDetails: {
     peephole: false,
-    inliner: true,
-    jumpdestRemover: true,
+    inliner: false,
+    jumpdestRemover: false,
     orderLiterals: true, // <-- TRUE! Stack too deep when false
-    deduplicate: true,
+    deduplicate: false,
     cse: false,
     constantOptimizer: false,
     yul: true,

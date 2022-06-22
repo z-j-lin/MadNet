@@ -1,0 +1,65 @@
+logging = "main=info,ethereum=info,consensus=debug,dman=debug,app=debug,peerMan=debug,muxHandler=debug,p2pmux=debug"
+
+[loglevel]
+blockchain = "debug"
+consensus = "debug"
+admin = "debug"
+
+[chain]
+id = 21
+stateDB = "./scripts/generated/stateDBs/integration/"
+stateDBInMemory = false
+transactionDB = ""
+transactionDBInMemory = true
+monitorDB = "scripts/generated/monitorDBs/integration/"
+monitorDBInMemory = false
+
+
+[bootnode]
+listeningAddress = "0.0.0.0:4242"
+cacheSize = 20
+
+[transport]
+upnp = false
+originLimit = 50
+privateKey = "0E6A7E40AC1C69C936DD03EAB9669651"
+bootNodeAddresses = 
+p2pListeningAddress = "0.0.0.0:4343"
+discoveryListeningAddress = "0.0.0.0:4444"
+localStateListeningAddress = "0.0.0.0:8885"
+peerLimitMax = 24
+peerLimitMin = 1
+
+[monitor]
+batchSize = 10_000
+interval = "7s"
+timeout = "1h"
+
+[ethereum]
+defaultAccount = "0x546f99f244b7b58b855330ae0e2bc1b30b41302f"
+endpoint = "https://eth.alice.net/"
+endpointPeers = 0
+keystore = "scripts/generated/keystores/keys"
+timeout = "1h"
+passcodes = "scripts/generated/keystores/passcodes.txt"
+testEther = "f000000000000000000"
+finalityDelay = 1
+retryCount = 10
+retryDelay = "5s"
+startingBlock = 14542880
+registryAddress = "0xA85Fcfba7234AD28148ebDEe054165AeF6974a65"
+txFeePercentageToIncrease = 50
+txMaxFeeThresholdInGwei = 1000000
+txCheckFrequency = "5s"
+txTimeoutForReplacement = "30s"
+
+[edge]
+ethTimeout = "5s"
+
+[utils]
+status = true
+
+[validator]
+rewardAccount = "0x546F99F244b7B58B855330AE0E2BC1b30b41302F"
+rewardCurveSpec = 1
+symmetricKey = "someSuperFancySecretThatWillBeHashed"

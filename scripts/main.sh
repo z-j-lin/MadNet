@@ -141,16 +141,14 @@ STATUS() {
 PRE_CHECK $1
 case $1 in
     init)
-        WD=$PWD
-        BRIDGE=./bridge
-        cd $BRIDGE &&
-        npm ci &&
-        cd $WD &&
         ./scripts/base-scripts/init-githooks.sh
         CREATE_CONFIGS $2
     ;;
     geth)
         ./scripts/base-scripts/geth-local.sh
+    ;;
+    integration_bootnode)
+        ./scripts/base-scripts/integration-bootnode.sh
     ;;
     bootnode)
         ./scripts/base-scripts/bootnode.sh

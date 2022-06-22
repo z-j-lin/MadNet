@@ -1,4 +1,4 @@
-logging = "main=info,ethereum=info,consensus=debug"
+logging = "main=info,ethereum=info,consensus=debug,dman=debug,app=debug,peerMan=debug,muxHandler=debug,p2pmux=debug"
 
 [loglevel]
 blockchain = "debug"
@@ -6,28 +6,29 @@ consensus = "debug"
 admin = "debug"
 
 [chain]
-id = 1337
-stateDB = ""
+id = 21
+stateDB = "./scripts/generated/stateDBs/integration/"
 stateDBInMemory = false
 transactionDB = ""
 transactionDBInMemory = true
-monitorDB = ""
+monitorDB = "scripts/generated/monitorDBs/integration/"
 monitorDBInMemory = false
 
+
 [bootnode]
-listeningAddress = ""
+listeningAddress = "0.0.0.0:4246"
 cacheSize = 20
 
 [transport]
 upnp = false
 originLimit = 50
-privateKey = ""
+privateKey = "0E6A7E40AC1C69C936DD03EAB9669651"
 bootNodeAddresses = "0000002a|029570051a8573e865af31a066eb100e7744bcbd05d814e899a763500163675be9@127.0.0.1:4242"
-p2pListeningAddress = ""
-discoveryListeningAddress = ""
-localStateListeningAddress = ""
+p2pListeningAddress = "0.0.0.0:4342"
+discoveryListeningAddress = "0.0.0.0:4443"
+localStateListeningAddress = "0.0.0.0:8883"
 peerLimitMax = 24
-peerLimitMin = 3
+peerLimitMin = 1
 
 [monitor]
 batchSize = 10
@@ -35,18 +36,18 @@ interval = "10s"
 timeout = "1h"
 
 [ethereum]
-defaultAccount = ""
+defaultAccount = "0x546f99f244b7b58b855330ae0e2bc1b30b41302f"
 endpoint = "http://localhost:8545"
 endpointPeers = 0
-keystore = ""
+keystore = "scripts/generated/keystores/keys"
 timeout = "1h"
-passcodes = ""
+passcodes = "scripts/generated/keystores/passcodes.txt"
 testEther = "f000000000000000000"
-finalityDelay = 6
+finalityDelay = 1
 retryCount = 10
 retryDelay = "5s"
-startingBlock = 1
-registryAddress = "0x0b1f9c2b7bed6db83295c7b5158e3806d67ec5bc"
+startingBlock = 14542880
+registryAddress = "0xA85Fcfba7234AD28148ebDEe054165AeF6974a65"
 txFeePercentageToIncrease = 50
 txMaxFeeThresholdInGwei = 1000000
 txCheckFrequency = "5s"
@@ -59,6 +60,6 @@ ethTimeout = "5s"
 status = true
 
 [validator]
-rewardAccount = ""
+rewardAccount = "0x546F99F244b7B58B855330AE0E2BC1b30b41302F"
 rewardCurveSpec = 1
 symmetricKey = "someSuperFancySecretThatWillBeHashed"

@@ -65,7 +65,6 @@ import {
   updateProxyList,
   updateTemplateList,
 } from "./deployment/factoryStateUtil";
-
 task(
   "getNetwork",
   "gets the current network being used from provider"
@@ -952,10 +951,7 @@ task(
     "factoryAddress",
     "address of factory contract to deploy the contract with"
   )
-  .addOptionalParam(
-    "initCallData",
-    "input initCallData args in a string list, eg: --initCallData 'arg1, arg2'"
-  )
+  .addFlag("integrate", "flag to call integrate function")
   .addOptionalParam(
     "salt",
     "unique salt for specifying proxy defaults to salt specified in logic contract"
@@ -967,21 +963,16 @@ task(
     const logicFactory: ContractFactory = await hre.ethers.getContractFactory(
       taskArgs.contractName
     );
-    const initArgs =
-      taskArgs.initCallData === undefined
-        ? []
-        : taskArgs.initCallData.replace(/\s+/g, "").split(",");
-    const fullname = (await getFullyQualifiedName(
-      taskArgs.contractName,
-      hre
-    )) as string;
-    const isInitable = await isInitializable(fullname, hre.artifacts);
-    const initCallData = isInitable
-      ? logicFactory.interface.encodeFunctionData(INITIALIZER, initArgs)
-      : "0x";
+
+    const initCallData =
+      taskArgs.integrate !== undefined
+        ? logicFactory.interface.encodeFunctionData("integrate")
+        : "0x";
+
     const deployTx = logicFactory.getDeployTransaction(
       ...taskArgs.constructorArgs
     );
+
     const deployCreate = factoryBase.interface.encodeFunctionData(
       DEPLOY_CREATE,
       [deployTx.data]
@@ -990,6 +981,7 @@ task(
       taskArgs.salt === undefined
         ? await getBytes32Salt(taskArgs.contractName, hre)
         : hre.ethers.utils.formatBytes32String(taskArgs.salt);
+
     const txCount = await hre.ethers.provider.getTransactionCount(
       factory.address
     );
@@ -998,7 +990,7 @@ task(
       nonce: txCount,
     });
     const upgradeProxy = factoryBase.interface.encodeFunctionData(
-      DEPLOY_CREATE,
+      UPGRADE_PROXY,
       [salt, implAddress, initCallData]
     );
     const PROXY_FACTORY = await hre.ethers.getContractFactory(PROXY);
@@ -1019,7 +1011,7 @@ task(
       logicName: taskArgs.contractName,
       logicAddress: taskArgs.logicAddress,
       salt,
-      proxyAddress: getEventVar(receipt, DEPLOYED_PROXY, CONTRACT_ADDR),
+      proxyAddress,
       gas: receipt.gasUsed.toNumber(),
       receipt,
       initCallData,

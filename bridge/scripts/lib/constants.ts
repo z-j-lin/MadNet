@@ -48,6 +48,12 @@ export const UPGRADEABLE_DEPLOYMENT: string = "deployUpgradeable";
 export const UTILS = "Utils";
 export const INITIALIZER = "initialize";
 export const HARDHAT_CHAIN_ID = 1337;
+export const MAINNET_CHAIN_ID = 21;
+export const MAINNET_ALICENET_FACTORY_ADDR =
+  "0xA85Fcfba7234AD28148ebDEe054165AeF6974a65";
+export const MAINNET_FACTORY_OWNER_ADDR =
+  "0xb9670e38d560c5662f0832cacaac3282ecffddb1";
+export const MAINNET_SYNC_FROM_BLOCK = 14542800;
 export const env = (): string => {
   let _env = process.env.DEPLOYMENT_ENVIRONMENT;
   if (typeof _env === "undefined") {

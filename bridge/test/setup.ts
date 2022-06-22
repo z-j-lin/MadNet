@@ -86,6 +86,10 @@ export const mineBlocks = async (nBlocks: bigint) => {
       ethers.utils.hexValue(nBlocks),
     ]);
   }
+  const hre = await require("hardhat");
+  if (hre.__SOLIDITY_COVERAGE_RUNNING === true) {
+    await network.provider.send("hardhat_setNextBlockBaseFeePerGas", ["0x1"]);
+  }
 };
 
 export const getBlockByNumber = async () => {
@@ -102,16 +106,17 @@ export const getPendingTransactions = async () => {
 export const getValidatorEthAccount = async (
   validator: ValidatorRawData | string
 ): Promise<Signer> => {
+  const hre = await require("hardhat");
+  const amount = hre.__SOLIDITY_COVERAGE_RUNNING === true ? "10000" : "10";
+  const signers = await await ethers.getSigners();
   if (typeof validator === "string") {
     return ethers.getSigner(validator);
   } else {
     const balance = await ethers.provider.getBalance(validator.address);
     if (balance.eq(0)) {
-      await (
-        await ethers.getSigners()
-      )[0].sendTransaction({
+      signers[0].sendTransaction({
         to: validator.address,
-        value: ethers.utils.parseEther("10"),
+        value: ethers.utils.parseEther(amount),
       });
     }
     if (typeof validator.privateKey !== "undefined") {
@@ -205,8 +210,10 @@ export const deployStaticWithFactory = async (
 ): Promise<Contract> => {
   const _Contract = await ethers.getContractFactory(contractName);
   const contractTx = await factory.deployTemplate(
-    _Contract.getDeployTransaction(...constructorArgs).data as BytesLike
+    _Contract.getDeployTransaction(...constructorArgs).data as BytesLike,
+    { gasPrice: 10 }
   );
+
   let receipt = await ethers.provider.getTransactionReceipt(contractTx.hash);
   if (receipt.gasUsed.gt(10_000_000)) {
     throw new Error(
@@ -233,7 +240,9 @@ export const deployStaticWithFactory = async (
   } else {
     saltBytes = getBytes32Salt(salt);
   }
-  const tx = await factory.deployStatic(saltBytes, initCallDataBin);
+  const tx = await factory.deployStatic(saltBytes, initCallDataBin, {
+    gasPrice: 10,
+  });
   receipt = await ethers.provider.getTransactionReceipt(tx.hash);
   if (receipt.gasUsed.gt(10_000_000)) {
     throw new Error(
@@ -256,22 +265,30 @@ export const deployUpgradeableWithFactory = async (
 
   const contractTx = await factory.deployTemplate(
     (deployCode = _Contract.getDeployTransaction(...constructorArgs)
-      .data as BytesLike)
+      .data as BytesLike),
+    { gasPrice: 10 }
   );
-
+  const hre: any = await require("hardhat");
   let receipt = await ethers.provider.getTransactionReceipt(contractTx.hash);
-  if (receipt.gasUsed.gt(10_000_000)) {
+  if (
+    receipt.gasUsed.gt(10_000_000) &&
+    hre.__SOLIDITY_COVERAGE_RUNNING !== true
+  ) {
     throw new Error(
       `Contract deployment size:${receipt.gasUsed} is greater than 10 million`
     );
   }
-  const transaction = await factory.deployCreate(deployCode);
+  const transaction = await factory.deployCreate(deployCode, { gasPrice: 10 });
   receipt = await ethers.provider.getTransactionReceipt(transaction.hash);
-  if (receipt.gasUsed.gt(10_000_000)) {
+  if (
+    receipt.gasUsed.gt(10_000_000) &&
+    hre.__SOLIDITY_COVERAGE_RUNNING !== true
+  ) {
     throw new Error(
       `Contract deployment size:${receipt.gasUsed} is greater than 10 million`
     );
   }
+
   const logicAddr = await getContractAddressFromDeployedRawEvent(transaction);
   let saltBytes;
   if (salt === undefined) {
@@ -280,14 +297,16 @@ export const deployUpgradeableWithFactory = async (
     saltBytes = getBytes32Salt(salt);
   }
 
-  const transaction2 = await factory.deployProxy(saltBytes);
+  const transaction2 = await factory.deployProxy(saltBytes, { gasPrice: 10 });
   receipt = await ethers.provider.getTransactionReceipt(transaction2.hash);
-  if (receipt.gasUsed.gt(10_000_000)) {
+  if (
+    receipt.gasUsed.gt(10_000_000) &&
+    hre.__SOLIDITY_COVERAGE_RUNNING !== true
+  ) {
     throw new Error(
       `Contract deployment size:${receipt.gasUsed} is greater than 10 million`
     );
   }
-
   let initCallDataBin = "0x";
   if (initCallData !== undefined) {
     try {
@@ -301,7 +320,9 @@ export const deployUpgradeableWithFactory = async (
       );
     }
   }
-  await factory.upgradeProxy(saltBytes, logicAddr, initCallDataBin);
+  await factory.upgradeProxy(saltBytes, logicAddr, initCallDataBin, {
+    gasPrice: 10,
+  });
   return _Contract.attach(
     await getContractAddressFromDeployedProxyEvent(transaction2)
   );
@@ -317,7 +338,6 @@ export const deployFactoryAndBaseTokens = async (
     factory,
     "LegacyToken"
   )) as LegacyToken;
-
   const aToken = (await deployStaticWithFactory(
     factory,
     "AToken",
@@ -328,7 +348,6 @@ export const deployFactoryAndBaseTokens = async (
 
   // BToken
   const bToken = (await deployStaticWithFactory(factory, "BToken")) as BToken;
-
   // PublicStaking
   const publicStaking = (await deployUpgradeableWithFactory(
     factory,
@@ -357,7 +376,7 @@ export const deployAliceNetFactory = async (
   });
 
   const Factory = await ethers.getContractFactory("AliceNetFactory");
-  const factory = await Factory.deploy(futureFactoryAddress);
+  const factory = await Factory.deploy(futureFactoryAddress, { gasPrice: 10 });
   await factory.deployed();
   return factory;
 };
@@ -367,7 +386,10 @@ export const preFixtureSetup = async () => {
   // hardhat is not being able to estimate correctly the tx gas due to the massive bytes array
   // being sent as input to the function (the contract bytecode), so we need to increase the block
   // gas limit temporally in order to deploy the template
-  await network.provider.send("evm_setBlockGasLimit", ["0x3000000000000000"]);
+  const hre = await require("hardhat");
+  if (hre.__SOLIDITY_COVERAGE_RUNNING !== true) {
+    await network.provider.send("evm_setBlockGasLimit", ["0x3000000000000000"]);
+  }
 };
 
 export const posFixtureSetup = async (
@@ -376,7 +398,11 @@ export const posFixtureSetup = async (
   legacyToken: LegacyToken
 ) => {
   // finish workaround, putting the blockgas limit to the previous value 30_000_000
-  await network.provider.send("evm_setBlockGasLimit", ["0x1C9C380"]);
+  const hre = await require("hardhat");
+  if (hre.__SOLIDITY_COVERAGE_RUNNING !== true) {
+    await network.provider.send("evm_setBlockGasLimit", ["0x1C9C380"]);
+  }
+  await network.provider.send("hardhat_setNextBlockBaseFeePerGas", ["0x1"]);
   const [admin] = await ethers.getSigners();
   // transferring some part of the legacy token from the factory to the admin
   await factory.callAny(
@@ -384,8 +410,9 @@ export const posFixtureSetup = async (
     0,
     aToken.interface.encodeFunctionData("transfer", [
       admin.address,
-      ethers.utils.parseEther("100000000"),
-    ])
+      ethers.utils.parseEther("1000"),
+    ]),
+    { gasPrice: 10 }
   );
   // migrating the rest of the legacy tokens to fresh new Atokens
   await factory.callAny(
@@ -393,20 +420,23 @@ export const posFixtureSetup = async (
     0,
     aToken.interface.encodeFunctionData("approve", [
       aToken.address,
-      ethers.utils.parseEther("100000000"),
-    ])
+      ethers.utils.parseEther("1000"),
+    ]),
+    { gasPrice: 10 }
   );
   await factory.callAny(
     aToken.address,
     0,
-    aToken.interface.encodeFunctionData("allowMigration")
+    aToken.interface.encodeFunctionData("allowMigration"),
+    { gasPrice: 10 }
   );
   await factory.callAny(
     aToken.address,
     0,
     aToken.interface.encodeFunctionData("migrate", [
-      ethers.utils.parseEther("100000000"),
-    ])
+      ethers.utils.parseEther("1000"),
+    ]),
+    { gasPrice: 10 }
   );
   // transferring those Atokens to the admin
   await factory.callAny(
@@ -414,8 +444,9 @@ export const posFixtureSetup = async (
     0,
     aToken.interface.encodeFunctionData("transfer", [
       admin.address,
-      ethers.utils.parseEther("100000000"),
-    ])
+      ethers.utils.parseEther("1000"),
+    ]),
+    { gasPrice: 10 }
   );
 };
 
@@ -447,7 +478,6 @@ export const getFixture = async (
     "ValidatorStaking",
     []
   )) as ValidatorStaking;
-
   // LiquidityProviderStaking
   const liquidityProviderStaking = (await deployUpgradeableWithFactory(
     factory,
@@ -455,14 +485,12 @@ export const getFixture = async (
     "LiquidityProviderStaking",
     []
   )) as LiquidityProviderStaking;
-
   // Foundation
   const foundation = (await deployUpgradeableWithFactory(
     factory,
     "Foundation",
     undefined
   )) as Foundation;
-
   let validatorPool;
   if (typeof mockValidatorPool !== "undefined" && mockValidatorPool) {
     // ValidatorPoolMock
@@ -548,7 +576,6 @@ export const getFixture = async (
   )) as ATokenBurner;
 
   await posFixtureSetup(factory, aToken, legacyToken);
-
   const blockNumber = BigInt(await ethers.provider.getBlockNumber());
   const phaseLength = (await ethdkg.getPhaseLength()).toBigInt();
   if (phaseLength >= blockNumber) {
