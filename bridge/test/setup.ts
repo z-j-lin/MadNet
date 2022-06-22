@@ -208,14 +208,17 @@ export const deployStaticWithFactory = async (
   initCallData?: any[],
   constructorArgs: any[] = []
 ): Promise<Contract> => {
+  const hre: any = await require("hardhat");
   const _Contract = await ethers.getContractFactory(contractName);
   const contractTx = await factory.deployTemplate(
-    _Contract.getDeployTransaction(...constructorArgs).data as BytesLike,
-    { gasPrice: 10 }
+    _Contract.getDeployTransaction(...constructorArgs).data as BytesLike
   );
 
   let receipt = await ethers.provider.getTransactionReceipt(contractTx.hash);
-  if (receipt.gasUsed.gt(10_000_000)) {
+  if (
+    receipt.gasUsed.gt(10_000_000) &&
+    hre.__SOLIDITY_COVERAGE_RUNNING !== true
+  ) {
     throw new Error(
       `Contract deployment size:${receipt.gasUsed} is greater than 10 million`
     );
@@ -240,11 +243,12 @@ export const deployStaticWithFactory = async (
   } else {
     saltBytes = getBytes32Salt(salt);
   }
-  const tx = await factory.deployStatic(saltBytes, initCallDataBin, {
-    gasPrice: 10,
-  });
+  const tx = await factory.deployStatic(saltBytes, initCallDataBin);
   receipt = await ethers.provider.getTransactionReceipt(tx.hash);
-  if (receipt.gasUsed.gt(10_000_000)) {
+  if (
+    receipt.gasUsed.gt(10_000_000) &&
+    hre.__SOLIDITY_COVERAGE_RUNNING !== true
+  ) {
     throw new Error(
       `Contract deployment size:${receipt.gasUsed} is greater than 10 million`
     );
@@ -265,8 +269,7 @@ export const deployUpgradeableWithFactory = async (
 
   const contractTx = await factory.deployTemplate(
     (deployCode = _Contract.getDeployTransaction(...constructorArgs)
-      .data as BytesLike),
-    { gasPrice: 10 }
+      .data as BytesLike)
   );
   const hre: any = await require("hardhat");
   let receipt = await ethers.provider.getTransactionReceipt(contractTx.hash);
@@ -278,7 +281,7 @@ export const deployUpgradeableWithFactory = async (
       `Contract deployment size:${receipt.gasUsed} is greater than 10 million`
     );
   }
-  const transaction = await factory.deployCreate(deployCode, { gasPrice: 10 });
+  const transaction = await factory.deployCreate(deployCode);
   receipt = await ethers.provider.getTransactionReceipt(transaction.hash);
   if (
     receipt.gasUsed.gt(10_000_000) &&
@@ -297,7 +300,7 @@ export const deployUpgradeableWithFactory = async (
     saltBytes = getBytes32Salt(salt);
   }
 
-  const transaction2 = await factory.deployProxy(saltBytes, { gasPrice: 10 });
+  const transaction2 = await factory.deployProxy(saltBytes);
   receipt = await ethers.provider.getTransactionReceipt(transaction2.hash);
   if (
     receipt.gasUsed.gt(10_000_000) &&
@@ -320,9 +323,7 @@ export const deployUpgradeableWithFactory = async (
       );
     }
   }
-  await factory.upgradeProxy(saltBytes, logicAddr, initCallDataBin, {
-    gasPrice: 10,
-  });
+  await factory.upgradeProxy(saltBytes, logicAddr, initCallDataBin);
   return _Contract.attach(
     await getContractAddressFromDeployedProxyEvent(transaction2)
   );
@@ -376,7 +377,7 @@ export const deployAliceNetFactory = async (
   });
 
   const Factory = await ethers.getContractFactory("AliceNetFactory");
-  const factory = await Factory.deploy(futureFactoryAddress, { gasPrice: 10 });
+  const factory = await Factory.deploy(futureFactoryAddress);
   await factory.deployed();
   return factory;
 };
@@ -411,8 +412,7 @@ export const posFixtureSetup = async (
     aToken.interface.encodeFunctionData("transfer", [
       admin.address,
       ethers.utils.parseEther("1000"),
-    ]),
-    { gasPrice: 10 }
+    ])
   );
   // migrating the rest of the legacy tokens to fresh new Atokens
   await factory.callAny(
@@ -421,22 +421,19 @@ export const posFixtureSetup = async (
     aToken.interface.encodeFunctionData("approve", [
       aToken.address,
       ethers.utils.parseEther("1000"),
-    ]),
-    { gasPrice: 10 }
+    ])
   );
   await factory.callAny(
     aToken.address,
     0,
-    aToken.interface.encodeFunctionData("allowMigration"),
-    { gasPrice: 10 }
+    aToken.interface.encodeFunctionData("allowMigration")
   );
   await factory.callAny(
     aToken.address,
     0,
     aToken.interface.encodeFunctionData("migrate", [
       ethers.utils.parseEther("1000"),
-    ]),
-    { gasPrice: 10 }
+    ])
   );
   // transferring those Atokens to the admin
   await factory.callAny(
@@ -445,8 +442,7 @@ export const posFixtureSetup = async (
     aToken.interface.encodeFunctionData("transfer", [
       admin.address,
       ethers.utils.parseEther("1000"),
-    ]),
-    { gasPrice: 10 }
+    ])
   );
 };
 
