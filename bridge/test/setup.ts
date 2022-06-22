@@ -411,7 +411,7 @@ export const posFixtureSetup = async (
     0,
     aToken.interface.encodeFunctionData("transfer", [
       admin.address,
-      ethers.utils.parseEther("1000"),
+      ethers.utils.parseEther("100000000"),
     ])
   );
   // migrating the rest of the legacy tokens to fresh new Atokens
@@ -420,7 +420,7 @@ export const posFixtureSetup = async (
     0,
     aToken.interface.encodeFunctionData("approve", [
       aToken.address,
-      ethers.utils.parseEther("1000"),
+      ethers.utils.parseEther("100000000"),
     ])
   );
   await factory.callAny(
@@ -432,7 +432,7 @@ export const posFixtureSetup = async (
     aToken.address,
     0,
     aToken.interface.encodeFunctionData("migrate", [
-      ethers.utils.parseEther("1000"),
+      ethers.utils.parseEther("100000000"),
     ])
   );
   // transferring those Atokens to the admin
@@ -441,7 +441,7 @@ export const posFixtureSetup = async (
     0,
     aToken.interface.encodeFunctionData("transfer", [
       admin.address,
-      ethers.utils.parseEther("1000"),
+      ethers.utils.parseEther("100000000"),
     ])
   );
 };

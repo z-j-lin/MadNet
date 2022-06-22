@@ -82,11 +82,6 @@ const config: HardhatUserConfig = {
     ganache: {
       url: "http://127.0.0.1:8545",
     },
-    coverage: {
-      url: "http://127.0.0.1:8545",
-      gas: 0xfffffffffff,
-      gasPrice: 0x01,
-    },
     hardhat: {
       chainId: 1337,
       gasPrice: "auto",
