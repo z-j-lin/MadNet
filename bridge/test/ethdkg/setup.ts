@@ -684,6 +684,7 @@ export const completeETHDKGRound = async (
   if (typeof expectedAliceNetHeight !== "undefined") {
     _expectedAliceNetHeight = expectedAliceNetHeight;
   }
+
   // Submit GPKj for all validators
   await submitValidatorsGPKJ(
     ethdkg,
@@ -696,7 +697,6 @@ export const completeETHDKGRound = async (
   // skipping the distribute shares accusation phase
   await endCurrentPhase(ethdkg);
   await assertETHDKGPhase(ethdkg, Phase.DisputeGPKJSubmission);
-
   // Complete ETHDKG
   await completeETHDKG(
     ethdkg,
