@@ -7,7 +7,7 @@ require (
 	github.com/bufbuild/buf v1.5.0
 	github.com/derision-test/go-mockgen v1.1.4
 	github.com/dgraph-io/badger/v2 v2.2007.4
-	github.com/emicklei/proto v1.9.0
+	github.com/emicklei/proto v1.11.1
 	github.com/ethereum/go-ethereum v1.10.16
 	github.com/golang/mock v1.4.4
 	github.com/google/uuid v1.1.5
